@@ -67,6 +67,8 @@ function defaultOptions(options = {}) {
     controllerSecret: options.controllerSecret === undefined ? (process.env.EMBEDDED_CORE_SECRET || '') : options.controllerSecret,
     controllerConfigPath: options.controllerConfigPath || process.env.EMBEDDED_CORE_HOST_CONFIG_PATH || '/home/mihomo/config.yaml',
     portRanges: options.portRanges === undefined ? (process.env.EMBEDDED_CORE_PORT_RANGES || '') : options.portRanges,
+    listenerHost: options.listenerHost || process.env.EMBEDDED_CORE_LISTENER_HOST || '0.0.0.0',
+    controllerAddress: options.controllerAddress || process.env.EMBEDDED_CORE_CONTROLLER_ADDRESS || '0.0.0.0:9090',
     definitionProvider: typeof options.definitionProvider === 'function' ? options.definitionProvider : null,
   }
 }
@@ -130,7 +132,7 @@ async function migrateState(source, definitions) {
   return state
 }
 
-function buildConfig(state, definitions, secret) {
+function buildConfig(state, definitions, options) {
   const byId = new Map(definitions.map(item => [item.id, item]))
   const proxies = new Map(), proxyGroups = [], listeners = []
   for (const [portText, rawItem] of Object.entries(state.ports).sort(([a], [b]) => Number(a) - Number(b))) {
@@ -148,20 +150,20 @@ function buildConfig(state, definitions, secret) {
     listeners.push({
       name: `ppm-${portText}`,
       type: LISTENER_TYPES[item.protocol] || 'mixed',
-      listen: '0.0.0.0',
+      listen: options.listenerHost,
       port: Number(portText),
       proxy: proxyGroup.name,
       udp: true,
     })
   }
   return {
-    'allow-lan': true,
-    'bind-address': '*',
+    'allow-lan': options.listenerHost !== '127.0.0.1' && options.listenerHost !== '::1',
+    'bind-address': options.listenerHost === '0.0.0.0' ? '*' : options.listenerHost,
     mode: 'rule',
     'log-level': 'info',
     ipv6: true,
-    'external-controller': '0.0.0.0:9090',
-    secret,
+    'external-controller': options.controllerAddress,
+    secret: options.controllerSecret,
     proxies: [...proxies.values()],
     'proxy-groups': proxyGroups,
     listeners,
@@ -182,7 +184,7 @@ async function reloadCore(options) {
 
 async function persist(source, state, options, shouldReload) {
   const definitions = await resolveDefinitions(source, options)
-  const config = buildConfig(state, definitions, options.controllerSecret)
+  const config = buildConfig(state, definitions, options)
   await atomicWrite(options.statePath, `${JSON.stringify(state, null, 2)}\n`)
   await atomicWrite(options.configPath, YAML.stringify(config))
   const reload = shouldReload ? await reloadCore(options) : { reloaded: false, reloadRequired: Boolean(options.controllerUrl) }
@@ -221,7 +223,7 @@ export async function embeddedListeners(source, rawOptions = {}) {
       id: `embedded-listener-${port}`,
       port: Number(port),
       protocol: ({ mixed: 'Mixed', http: 'HTTP', socks: 'SOCKS5' })[String(LISTENER_TYPES[item.protocol] || '').toLowerCase()] || 'Mixed',
-      listen: '0.0.0.0',
+      listen: options.listenerHost,
       routeName: `${PORT_STRATEGIES[item.strategy].label} · ${item.nodeIds.length} 节点`,
       listenerName: `ppm-${port}`,
       nodeId: item.nodeId,

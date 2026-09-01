@@ -1,0 +1,25 @@
+{
+  "version": "1.19.28",
+  "targets": {
+    "win32-x64": {
+      "archive": "mihomo-windows-amd64-v1.19.28.zip",
+      "sha256": "27bdbd8f476dfb0f65a2a8ecf43cdf7edc0a132326efc7660308a1302c034a20"
+    },
+    "linux-x64": {
+      "archive": "mihomo-linux-amd64-v1.19.28.gz",
+      "sha256": "d5967e079d9f793515a5a8193aabda455f7e012427eccd567dbc4f2f15498204"
+    },
+    "linux-arm64": {
+      "archive": "mihomo-linux-arm64-v1.19.28.gz",
+      "sha256": "2474450cd1c41dfa53036a54a4e85579f493d3af524d86c3d4b8e2b240b56cd2"
+    },
+    "darwin-x64": {
+      "archive": "mihomo-darwin-amd64-v1.19.28.gz",
+      "sha256": "03e0ce01921f1bcc75e51e6505853330e2956e4dac123564a37620e2a68f823f"
+    },
+    "darwin-arm64": {
+      "archive": "mihomo-darwin-arm64-v1.19.28.gz",
+      "sha256": "40cdae2fab4b18df15f40eaa9dc3af70ab3d8be7f77164ae1e5f1af3a2a4fb44"
+    }
+  }
+}

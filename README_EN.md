@@ -49,7 +49,24 @@ It is designed for local development, crawlers, automation tools, and applicatio
 
 ## 3-minute start
 
-### 1. Requirements
+Proxy Port Manager supports two local deployment modes:
+
+- **Docker Compose** for development machines, NAS devices, and long-running hosts.
+- **Portable server bundles** for Windows, Linux, and macOS. They include Node.js and Mihomo, open the existing web UI in a browser, and do not require Docker or Git.
+
+### Windows portable deployment
+
+Download and extract the portable ZIP for your architecture, then run:
+
+```powershell
+.\ppm.cmd start
+```
+
+Use `start --background`, `status`, `open`, and `stop` to manage a background instance. Portable state is stored in the `data` directory beside the launcher. See [PORTABLE.md](PORTABLE.md) for details.
+
+### Docker Compose
+
+#### 1. Requirements
 
 - Git
 - Node.js 22 or newer
@@ -57,7 +74,7 @@ It is designed for local development, crawlers, automation tools, and applicatio
 
 On Windows, make sure Docker Desktop is using Linux containers.
 
-### 2. Install and start
+#### 2. Install and start
 
 ```bash
 git clone https://github.com/992640451/mihomo-local-proxy-pool.git
@@ -68,7 +85,7 @@ docker compose up -d --build
 
 `npm run init` creates a machine-local `.env`, random secrets, and an administrator password. Save the password shown in your terminal; it is never committed to the repository.
 
-### 3. Open the dashboard
+#### 3. Open the dashboard
 
 Visit **http://127.0.0.1:4173** and sign in with the credentials printed during initialization.
 

@@ -38,6 +38,24 @@ test('migrates listeners and builds an independent Mihomo configuration', async 
   assert.match(config.proxies[0].name, /^ppm-node-/)
 })
 
+test('binds the portable core controller and listeners to loopback', async () => {
+  const f = await fixture()
+  await ensureEmbeddedCore(f.root, {
+    statePath: f.statePath,
+    configPath: f.configPath,
+    controllerUrl: '',
+    listenerHost: '127.0.0.1',
+    controllerAddress: '127.0.0.1:19090',
+  })
+  const config = YAML.parse(await readFile(f.configPath, 'utf8'))
+  assert.equal(config['allow-lan'], false)
+  assert.equal(config['bind-address'], '127.0.0.1')
+  assert.equal(config['external-controller'], '127.0.0.1:19090')
+  assert.equal(config.listeners[0].listen, '127.0.0.1')
+  const listener = (await embeddedListeners(f.root, { statePath: f.statePath, listenerHost: '127.0.0.1' }))[0]
+  assert.equal(listener.listen, '127.0.0.1')
+})
+
 test('upgrades a v1 state file to v2 and keeps a rollback backup', async () => {
   const f = await fixture()
   const catalogId = (await loadSubscriptionCatalog(f.root)).nodes.find(item => item.name === '日本 A').id

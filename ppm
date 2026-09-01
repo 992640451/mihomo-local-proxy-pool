@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+PPM_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export PPM_ROOT PPM_PORTABLE=1
+PPM_NODE="$PPM_ROOT/runtime/node"
+PPM_ENTRY="$PPM_ROOT/app/scripts/launcher.mjs"
+[ -x "$PPM_NODE" ] || PPM_NODE=node
+[ -f "$PPM_ENTRY" ] || PPM_ENTRY="$PPM_ROOT/scripts/launcher.mjs"
+exec "$PPM_NODE" "$PPM_ENTRY" "$@"

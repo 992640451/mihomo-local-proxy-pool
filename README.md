@@ -49,7 +49,33 @@
 
 ## 3 分钟启动
 
-### 1. 准备环境
+项目支持两种本地部署方式：
+
+- **Docker Compose**：适合已有 Docker 的开发机、NAS 和长期运行环境。
+- **便携服务包**：适合 Windows、Linux 和 macOS，不需要安装 Docker、Git 或系统级 Node.js；启动后使用浏览器管理。
+
+### Windows 便携部署
+
+从 Releases 下载与系统架构匹配的便携 ZIP，解压后运行：
+
+```powershell
+.\ppm.cmd start
+```
+
+首次启动会显示随机生成的管理密码，并在 Mihomo 和管理服务就绪后自动打开浏览器。后台运行和管理命令：
+
+```powershell
+.\ppm.cmd start --background
+.\ppm.cmd status
+.\ppm.cmd open
+.\ppm.cmd stop
+```
+
+便携版把订阅、密钥、会话和端口池保存在解压目录的 `data` 文件夹中。更新时请保留该目录。详细说明见 [便携部署文档](PORTABLE.md)。
+
+### Docker Compose
+
+#### 1. 准备环境
 
 - Git
 - Node.js 22 或更高版本
@@ -57,7 +83,7 @@
 
 Windows 用户请确认 Docker Desktop 正在使用 Linux containers。
 
-### 2. 安装并启动
+#### 2. 安装并启动
 
 ```bash
 git clone https://github.com/992640451/mihomo-local-proxy-pool.git
@@ -68,7 +94,7 @@ docker compose up -d --build
 
 `npm run init` 会创建本机专用的 `.env`、随机密钥和管理员密码。请保存终端中显示的密码；密码不会写入仓库。
 
-### 3. 打开管理页面
+#### 3. 打开管理页面
 
 访问 **http://127.0.0.1:4173**，使用初始化时显示的账号和密码登录。
 

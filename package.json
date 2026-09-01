@@ -12,6 +12,8 @@
     "start": "node server/index.mjs",
     "start:bridge": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-mihomo-bridge.ps1",
     "build": "vite build",
+    "portable:start": "node scripts/launcher.mjs start",
+    "portable:build": "npm run build && node scripts/build-portable.mjs",
     "docker:update": "node scripts/docker-update.mjs",
     "docker:watch": "docker compose watch proxy-port-manager",
     "test": "node --test tests/*.test.mjs"

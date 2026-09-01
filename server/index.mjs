@@ -61,7 +61,6 @@ if (subscriptionMode !== 'legacy') {
 const coreOptions = subscriptionService ? { definitionProvider: () => subscriptionService.getDefinitions({ includeOrphaned: true, includeDisabled: true }) } : {}
 if (subscriptionService) {
   subscriptionService.onScheduledRefresh = () => syncCoreAfterSubscriptionChange()
-  subscriptionService.startScheduler()
 }
 
 app.use(express.json({ limit: '6mb' }))
@@ -290,19 +289,62 @@ app.post('/api/ports/:port/verify', async (req, res) => {
 })
 app.use(express.static(path.join(root, 'dist')))
 app.use((_req, res) => res.sendFile(path.join(root, 'dist', 'index.html')))
-const port = Number(process.env.PORT || 4180)
-const appHost = process.env.APP_HOST || '127.0.0.1'
-if (embeddedCore) await ensureEmbeddedCore(defaultConfigDir(), coreOptions)
-const server = app.listen(port, appHost, () => console.log(`subscription API listening at http://${appHost}:${port}`))
 
-function shutdown() {
-  server.close(() => {
-    subscriptionService?.stopScheduler()
-    subscriptionStore?.close()
-    sessionStore.close()
-    process.exit(0)
+let server = null
+let schedulerStarted = false
+let stopping = null
+
+export async function startApplication({
+  port = Number(process.env.PORT || 4180),
+  host = process.env.APP_HOST || '127.0.0.1',
+} = {}) {
+  if (server) {
+    const address = server.address()
+    return { app, server, host, port: typeof address === 'object' && address ? address.port : port }
+  }
+  if (embeddedCore) await ensureEmbeddedCore(defaultConfigDir(), coreOptions)
+  if (subscriptionService && !schedulerStarted) {
+    subscriptionService.startScheduler()
+    schedulerStarted = true
+  }
+  server = await new Promise((resolve, reject) => {
+    const candidate = app.listen(port, host)
+    candidate.once('listening', () => resolve(candidate))
+    candidate.once('error', reject)
   })
+  const address = server.address()
+  const actualPort = typeof address === 'object' && address ? address.port : port
+  console.log(`subscription API listening at http://${host}:${actualPort}`)
+  return { app, server, host, port: actualPort }
 }
 
-process.once('SIGINT', shutdown)
-process.once('SIGTERM', shutdown)
+export function stopApplication() {
+  if (stopping) return stopping
+  stopping = new Promise((resolve, reject) => {
+    if (schedulerStarted) {
+      subscriptionService?.stopScheduler()
+      schedulerStarted = false
+    }
+    const finish = error => {
+      if (error) return reject(error)
+      subscriptionStore?.close()
+      sessionStore.close()
+      server = null
+      resolve()
+    }
+    if (!server) return finish()
+    server.close(finish)
+  })
+  return stopping
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain) {
+  await startApplication()
+  const shutdown = async () => {
+    try { await stopApplication(); process.exit(0) }
+    catch (error) { console.error(error); process.exit(1) }
+  }
+  process.once('SIGINT', shutdown)
+  process.once('SIGTERM', shutdown)
+}
