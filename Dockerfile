@@ -1,4 +1,4 @@
-FROM node:22.23.2-bookworm-slim AS builder
+FROM node:26.8.1-bookworm-slim AS builder
 
 ARG VITE_BASE_PATH=/
 ENV VITE_BASE_PATH=${VITE_BASE_PATH}
@@ -12,7 +12,7 @@ COPY src ./src
 COPY shared ./shared
 RUN npm run build
 
-FROM node:22.23.2-bookworm-slim AS runtime
+FROM node:26.8.1-bookworm-slim AS runtime
 
 ENV NODE_ENV=production \
     APP_HOST=0.0.0.0 \
