@@ -52,6 +52,8 @@ if (subscriptionMode !== 'legacy') {
       maxBytes: Number(process.env.SUBSCRIPTION_MAX_BYTES || 5 * 1024 * 1024),
       allowPrivateNetworks: process.env.SUBSCRIPTION_ALLOW_PRIVATE_NETWORKS === 'true',
       userAgent: process.env.SUBSCRIPTION_USER_AGENT || 'mihomo/1.19.28',
+      dohUrls: String(process.env.SUBSCRIPTION_DOH_URLS || '').split(',').map(value => value.trim()).filter(Boolean),
+      dohTimeoutMs: Number(process.env.SUBSCRIPTION_DOH_TIMEOUT_MS || 5000),
     },
   })
   await subscriptionService.initialize()

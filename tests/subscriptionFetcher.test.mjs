@@ -54,3 +54,73 @@ test('重新导入同一失败 URL 会复用原记录', async () => {
     assert.equal(store.list().length, 1)
   } finally { store.close(); server.close(); await once(server, 'close') }
 })
+
+test('Fake-IP 环境通过 DoH 校验真实地址并固定连接目标', async () => {
+  const dispatches = []
+  let requested = 0
+  const result = await fetchSubscription('https://subscription.example/config', {
+    lookup: async () => [
+      { address: '198.18.0.7', family: 4 },
+      { address: 'fdfe:dcba:9876::7', family: 6 },
+    ],
+    dohUrls: ['https://resolver.example/dns-query'],
+    dohFetch: async url => {
+      assert.equal(url.hostname, 'resolver.example')
+      assert.equal(url.searchParams.get('name'), 'subscription.example')
+      const answer = url.searchParams.get('type') === 'A'
+        ? [{ name: 'subscription.example', type: 1, data: '8.8.8.8' }]
+        : []
+      return new Response(JSON.stringify({ Status: 0, Answer: answer }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/dns-json' },
+      })
+    },
+    dispatcherFactory: addresses => {
+      dispatches.push(addresses)
+      return { close: async () => {} }
+    },
+    request: async (_url, init) => {
+      requested += 1
+      assert.ok(init.dispatcher)
+      return new Response(yaml, { status: 200 })
+    },
+  })
+  assert.equal(result.content, yaml)
+  assert.equal(requested, 1)
+  assert.deepEqual(dispatches, [[{ address: '8.8.8.8', family: 4 }]])
+})
+
+test('Fake-IP 的 DoH 真实结果为私网地址时仍然拒绝', async () => {
+  let requested = false
+  await assert.rejects(() => fetchSubscription('https://subscription.example/config', {
+    lookup: async () => [{ address: '198.18.0.7', family: 4 }],
+    dohLookup: async () => [{ address: '127.0.0.1', family: 4 }],
+    request: async () => { requested = true },
+  }), /内网、环回或保留地址/)
+  assert.equal(requested, false)
+})
+
+test('混合公网和私网解析结果不会借 DoH 绕过安全检查', async () => {
+  let dohRequested = false
+  await assert.rejects(() => fetchSubscription('https://subscription.example/config', {
+    lookup: async () => [
+      { address: '8.8.8.8', family: 4 },
+      { address: '127.0.0.1', family: 4 },
+    ],
+    dohLookup: async () => { dohRequested = true; return [{ address: '8.8.8.8', family: 4 }] },
+  }), /内网、环回或保留地址/)
+  assert.equal(dohRequested, false)
+})
+
+test('订阅重定向会重新校验目标地址', async () => {
+  let requested = 0
+  await assert.rejects(() => fetchSubscription('https://subscription.example/config', {
+    lookup: async () => [{ address: '8.8.8.8', family: 4 }],
+    dispatcherFactory: () => ({ close: async () => {} }),
+    request: async () => {
+      requested += 1
+      return new Response(null, { status: 302, headers: { Location: 'http://127.0.0.1/private' } })
+    },
+  }), /内网、环回或保留地址/)
+  assert.equal(requested, 1)
+})

@@ -37,6 +37,16 @@ do not break port pools. The server performs each subscription's refresh schedul
 even when no browser is open and regenerates/hot-reloads the embedded Mihomo
 configuration after a change.
 
+Subscription downloads reject private, loopback, and reserved destinations. If
+the host uses Mihomo/Clash Fake-IP DNS, the server recognizes the default Fake-IP
+ranges, resolves the real A/AAAA records through DNS-over-HTTPS, validates them,
+and pins the connection to those validated addresses. The default DoH endpoints
+are Cloudflare and Google. Override them with a comma-separated
+`SUBSCRIPTION_DOH_URLS` value and set the per-query timeout with
+`SUBSCRIPTION_DOH_TIMEOUT_MS`. Custom endpoints must use HTTPS. Do not enable
+`SUBSCRIPTION_ALLOW_PRIVATE_NETWORKS` merely to work around Fake-IP, because it
+disables the destination safety check entirely.
+
 Every subscription has editable name, enabled state, refresh interval, optional
 replacement URL, and an integer priority from `-10000` to `10000`. Higher values
 sort first. The same server-side ordering is used by the Subscription page, node
