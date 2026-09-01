@@ -4,11 +4,13 @@ import net from 'node:net'
 import path from 'node:path'
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { defaultConfigDir, loadSubscriptionCatalog } from './subscriptionCatalog.mjs'
+import { buildNativeCatalog, defaultConfigDir, loadSubscriptionCatalog } from './subscriptionCatalog.mjs'
 import { applyMihomoPort, deleteMihomoPort } from './mihomoConfig.mjs'
-import { probeProxyEgress } from './egressProbe.mjs'
+import { probeProxyEgress, verifyProxyPool } from './egressProbe.mjs'
 import { createCredentialVersion, SessionStore } from './sessionStore.mjs'
-import { applyEmbeddedPort, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, ensureEmbeddedCore, isEmbeddedCoreEnabled } from './embeddedCore.mjs'
+import { applyEmbeddedPort, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, isEmbeddedCoreEnabled, syncEmbeddedCore } from './embeddedCore.mjs'
+import { SubscriptionStore } from './subscriptions/store.mjs'
+import { SubscriptionService } from './subscriptions/service.mjs'
 
 const app = express()
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -26,6 +28,7 @@ const sessionTouchMs = Math.max(1, Number(process.env.AUTH_SESSION_TOUCH_SECONDS
 const sessionCookieName = 'ppm_session'
 const attempts = new Map()
 const embeddedCore = isEmbeddedCoreEnabled()
+const subscriptionMode = String(process.env.SUBSCRIPTION_MODE || 'legacy').toLowerCase()
 const sessionStore = new SessionStore({
   filename: process.env.AUTH_SESSION_DB || ':memory:',
   idleMs: sessionIdleMs,
@@ -34,7 +37,32 @@ const sessionStore = new SessionStore({
   credentialVersion: createCredentialVersion(authUser, authHash, process.env.AUTH_SESSION_VERSION || '1'),
 })
 
-app.use(express.json({ limit: '8kb' }))
+let subscriptionStore = null, subscriptionService = null
+if (subscriptionMode !== 'legacy') {
+  subscriptionStore = new SubscriptionStore({
+    filename: process.env.SUBSCRIPTION_DB || '/data/subscriptions.sqlite',
+    masterKey: process.env.SUBSCRIPTION_MASTER_KEY || process.env.EMBEDDED_CORE_SECRET || authHash,
+  })
+  subscriptionService = new SubscriptionService({
+    store: subscriptionStore,
+    mode: subscriptionMode,
+    legacySource: process.env.SUBSCRIPTION_LEGACY_SOURCE || defaultConfigDir(),
+    fetchOptions: {
+      timeoutMs: Number(process.env.SUBSCRIPTION_FETCH_TIMEOUT_MS || 20000),
+      maxBytes: Number(process.env.SUBSCRIPTION_MAX_BYTES || 5 * 1024 * 1024),
+      allowPrivateNetworks: process.env.SUBSCRIPTION_ALLOW_PRIVATE_NETWORKS === 'true',
+      userAgent: process.env.SUBSCRIPTION_USER_AGENT || 'mihomo/1.19.28',
+    },
+  })
+  await subscriptionService.initialize()
+}
+const coreOptions = subscriptionService ? { definitionProvider: () => subscriptionService.getDefinitions({ includeOrphaned: true, includeDisabled: true }) } : {}
+if (subscriptionService) {
+  subscriptionService.onScheduledRefresh = () => syncCoreAfterSubscriptionChange()
+  subscriptionService.startScheduler()
+}
+
+app.use(express.json({ limit: '6mb' }))
 
 app.get('/healthz', (_req, res) => {
   res.set('Cache-Control', 'no-store').json({
@@ -44,9 +72,16 @@ app.get('/healthz', (_req, res) => {
 })
 
 async function loadLiveCatalog() {
-  const source = defaultConfigDir(), catalog = await loadSubscriptionCatalog(source)
-  if (embeddedCore) catalog.listeners = await embeddedListeners(source)
+  const source = defaultConfigDir()
+  const catalog = subscriptionService
+    ? buildNativeCatalog(subscriptionService.list(), subscriptionService.getDefinitions())
+    : await loadSubscriptionCatalog(source)
+  if (embeddedCore) catalog.listeners = await embeddedListeners(source, coreOptions)
   return catalog
+}
+
+async function syncCoreAfterSubscriptionChange() {
+  if (embeddedCore) await syncEmbeddedCore(defaultConfigDir(), coreOptions)
 }
 
 function parseCookies(req) {
@@ -118,6 +153,59 @@ app.get('/api/subscriptions/catalog', async (_req, res) => {
   try { res.set('Cache-Control', 'no-store').json(await loadLiveCatalog()) }
   catch (error) { res.status(500).json({ error: '订阅配置读取失败', detail: error.message }) }
 })
+app.get('/api/subscriptions', (_req, res) => {
+  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  res.set('Cache-Control', 'no-store').json({ mode: subscriptionMode, subscriptions: subscriptionService.list() })
+})
+app.post('/api/subscriptions/preview', async (req, res) => {
+  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  try { res.set('Cache-Control', 'no-store').json(await subscriptionService.preview({ url: req.body?.url, content: req.body?.content })) }
+  catch (error) { res.status(400).json({ error: '订阅预览失败', detail: error.message }) }
+})
+app.post('/api/subscriptions', async (req, res) => {
+  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  try {
+    const result = await subscriptionService.create(req.body || {})
+    await syncCoreAfterSubscriptionChange()
+    res.status(201).set('Cache-Control', 'no-store').json(result)
+  } catch (error) { res.status(400).json({ error: '订阅导入失败', detail: error.message }) }
+})
+app.patch('/api/subscriptions/:id', async (req, res) => {
+  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  try {
+    const result = await subscriptionService.update(req.params.id, req.body || {})
+    await syncCoreAfterSubscriptionChange()
+    res.set('Cache-Control', 'no-store').json(result)
+  } catch (error) { res.status(400).json({ error: '订阅更新失败', detail: error.message }) }
+})
+app.post('/api/subscriptions/:id/refresh', async (req, res) => {
+  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  try {
+    const result = await subscriptionService.refresh(req.params.id)
+    await syncCoreAfterSubscriptionChange()
+    res.set('Cache-Control', 'no-store').json(result)
+  } catch (error) { res.status(400).json({ error: '订阅刷新失败', detail: error.message }) }
+})
+app.post('/api/subscriptions/refresh-all', async (_req, res) => {
+  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  try {
+    const results = await subscriptionService.refreshAll()
+    await syncCoreAfterSubscriptionChange()
+    res.set('Cache-Control', 'no-store').json({ results })
+  } catch (error) { res.status(400).json({ error: '订阅批量刷新失败', detail: error.message }) }
+})
+app.delete('/api/subscriptions/:id', async (req, res) => {
+  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  try {
+    const nodeIds = new Set(subscriptionService.nodeIds(req.params.id))
+    const catalog = await loadLiveCatalog()
+    const referenced = (catalog.listeners || []).filter(listener => (listener.nodeIds || []).some(id => nodeIds.has(id)))
+    if (referenced.length) return res.status(409).json({ error: '订阅仍被端口引用', ports: referenced.map(item => item.port) })
+    subscriptionService.remove(req.params.id)
+    await syncCoreAfterSubscriptionChange()
+    res.status(204).end()
+  } catch (error) { res.status(400).json({ error: '订阅删除失败', detail: error.message }) }
+})
 app.get('/api/runtime', async (_req, res) => {
   try {
     const catalog = await loadLiveCatalog(), core = embeddedCore ? await embeddedCoreStatus() : { enabled: false }
@@ -131,8 +219,12 @@ app.put('/api/ports/:port', async (req, res) => {
       source: defaultConfigDir(),
       port: req.params.port,
       nodeId: String(req.body?.nodeId || ''),
+      nodeIds: Array.isArray(req.body?.nodeIds) ? req.body.nodeIds.map(value => String(value || '')) : undefined,
+      strategy: req.body?.strategy === undefined ? undefined : String(req.body.strategy),
+      strategyOptions: req.body?.strategyOptions,
       protocol: String(req.body?.protocol || 'Mixed'),
       enabled: req.body?.enabled !== false,
+      ...coreOptions,
     })
     res.set('Cache-Control', 'no-store').json(result)
   } catch (error) {
@@ -142,11 +234,16 @@ app.put('/api/ports/:port', async (req, res) => {
 app.delete('/api/ports/:port', async (req, res) => {
   try {
     const deletePort = embeddedCore ? deleteEmbeddedPort : deleteMihomoPort
-    const result = await deletePort({ source: defaultConfigDir(), port: req.params.port })
+    const result = await deletePort({ source: defaultConfigDir(), port: req.params.port, ...coreOptions })
     res.set('Cache-Control', 'no-store').json(result)
   } catch (error) {
     res.status(400).json({ error: '端口配置删除失败', detail: error.message })
   }
+})
+app.get('/api/ports/:port/status', async (req, res) => {
+  if (!embeddedCore) return res.status(501).json({ error: '当前 Mihomo 运行模式不支持策略组状态查询' })
+  try { res.set('Cache-Control', 'no-store').json(await embeddedPortStatus(defaultConfigDir(), req.params.port, coreOptions)) }
+  catch (error) { res.status(502).json({ error: '策略组状态读取失败', detail: error.message }) }
 })
 app.get('/api/ports/:port/test', async (req, res) => {
   const port = Number(req.params.port)
@@ -176,15 +273,30 @@ app.get('/api/ports/:port/egress', async (req, res) => {
     res.status(502).json({ error: '出口国家检测失败', detail: error.message })
   }
 })
+app.post('/api/ports/:port/verify', async (req, res) => {
+  const port = Number(req.params.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return res.status(400).json({ error: '端口无效' })
+  try {
+    const catalog = await loadLiveCatalog()
+    const listener = (catalog.listeners || []).find(item => Number(item.port) === port)
+    if (!listener || listener.isGlobal) return res.status(404).json({ error: '端口池不存在' })
+    const result = await verifyProxyPool({ host: probeHost, port, attempts: req.body?.attempts ?? 8 })
+    res.set('Cache-Control', 'no-store').json(result)
+  } catch (error) {
+    res.status(400).json({ error: '代理池验证失败', detail: error.message })
+  }
+})
 app.use(express.static(path.join(root, 'dist')))
 app.use((_req, res) => res.sendFile(path.join(root, 'dist', 'index.html')))
 const port = Number(process.env.PORT || 4180)
 const appHost = process.env.APP_HOST || '127.0.0.1'
-if (embeddedCore) await ensureEmbeddedCore(defaultConfigDir())
+if (embeddedCore) await ensureEmbeddedCore(defaultConfigDir(), coreOptions)
 const server = app.listen(port, appHost, () => console.log(`subscription API listening at http://${appHost}:${port}`))
 
 function shutdown() {
   server.close(() => {
+    subscriptionService?.stopScheduler()
+    subscriptionStore?.close()
     sessionStore.close()
     process.exit(0)
   })

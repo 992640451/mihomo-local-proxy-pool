@@ -7,4 +7,12 @@ dist/
 .docker-artifacts/
 $artifact/
 .git-transaction/
+.playwright-cli/
+output/
 20260819-005152
+
+# Local visual QA artifacts may contain runtime subscription or node details.
+design-qa.md
+design-qa-*.png
+implementation-*.png
+source-*.png

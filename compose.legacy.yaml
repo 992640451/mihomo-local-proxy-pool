@@ -1,0 +1,10 @@
+services:
+  proxy-port-manager:
+    environment:
+      SUBSCRIPTION_MODE: hybrid
+      SUBSCRIPTION_LEGACY_SOURCE: /catalog
+    volumes:
+      - type: bind
+        source: ${CATALOG_SOURCE:?请在 .env 中设置 CATALOG_SOURCE}
+        target: /catalog
+        read_only: true

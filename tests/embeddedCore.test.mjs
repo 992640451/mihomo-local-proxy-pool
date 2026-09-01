@@ -32,8 +32,26 @@ test('migrates listeners and builds an independent Mihomo configuration', async 
   assert.equal(config.secret, 'test-secret')
   assert.equal(config.listeners[0].port, 17891)
   assert.equal(config.listeners[0].listen, '0.0.0.0')
+  assert.equal(config.listeners[0].proxy, 'PPM-17891')
+  assert.deepEqual(config['proxy-groups'][0], { name: 'PPM-17891', type: 'select', proxies: [config.proxies[0].name] })
   assert.equal(config.proxies[0].server, 'a.example')
   assert.match(config.proxies[0].name, /^ppm-node-/)
+})
+
+test('upgrades a v1 state file to v2 and keeps a rollback backup', async () => {
+  const f = await fixture()
+  const catalogId = (await loadSubscriptionCatalog(f.root)).nodes.find(item => item.name === '日本 A').id
+  await mkdir(path.dirname(f.statePath), { recursive: true })
+  const legacy = `${JSON.stringify({ version: 1, ports: { 17891: { nodeId: catalogId, protocol: 'Mixed', enabled: true } } }, null, 2)}\n`
+  await writeFile(f.statePath, legacy)
+  const result = await ensureEmbeddedCore(f.root, { statePath: f.statePath, configPath: f.configPath, controllerUrl: '' })
+  assert.equal(result.migrated, true)
+  assert.equal(await readFile(`${f.statePath}.v1.bak`, 'utf8'), legacy)
+  const state = JSON.parse(await readFile(f.statePath, 'utf8'))
+  assert.equal(state.version, 2)
+  assert.equal(state.ports['17891'].nodeId, catalogId)
+  assert.deepEqual(state.ports['17891'].nodeIds, [catalogId])
+  assert.equal(state.ports['17891'].strategy, 'select')
 })
 
 test('applies a node from an inactive subscription without switching profiles', async () => {
@@ -45,11 +63,59 @@ test('applies a node from an inactive subscription without switching profiles', 
   assert.equal(result.embeddedCore, true)
   const config = YAML.parse(await readFile(f.configPath, 'utf8'))
   const listener = config.listeners.find(item => item.port === 17892)
-  const proxy = config.proxies.find(item => item.name === listener.proxy)
+  const group = config['proxy-groups'].find(item => item.name === listener.proxy)
+  const proxy = config.proxies.find(item => item.name === group.proxies[0])
   assert.equal(proxy.type, 'hysteria2')
   assert.equal(proxy.server, 'b.example')
   assert.equal(proxy.password, 'secret')
-  assert.equal((await embeddedListeners(f.root, { statePath: f.statePath })).find(item => item.port === 17892).routeName, '美国 B')
+  const saved = (await embeddedListeners(f.root, { statePath: f.statePath })).find(item => item.port === 17892)
+  assert.equal(saved.routeName, '手动选择 · 1 节点')
+  assert.equal(saved.protocol, 'Mixed')
+  assert.deepEqual(saved.nodeIds, [catalogId])
+  assert.equal(saved.strategy, 'select')
+})
+
+test('persists an ordered fallback pool and points the listener at its proxy group', async () => {
+  const f = await fixture()
+  await ensureEmbeddedCore(f.root, { statePath: f.statePath, configPath: f.configPath, controllerUrl: '' })
+  const catalog = await loadSubscriptionCatalog(f.root)
+  const primary = catalog.nodes.find(item => item.name === '日本 A').id
+  const backup = catalog.nodes.find(item => item.name === '美国 B').id
+  await applyEmbeddedPort({
+    source: f.root, port: 17892, nodeIds: [primary, backup], strategy: 'fallback', protocol: 'Mixed',
+    strategyOptions: { healthCheckUrl: 'https://www.gstatic.com/generate_204', intervalSeconds: 30, timeoutMs: 2000, maxFailedTimes: 2 },
+    statePath: f.statePath, configPath: f.configPath, controllerUrl: '',
+  })
+  const config = YAML.parse(await readFile(f.configPath, 'utf8'))
+  const group = config['proxy-groups'].find(item => item.name === 'PPM-17892')
+  assert.equal(group.type, 'fallback')
+  assert.deepEqual(group.proxies, [`ppm-node-${primary}`, `ppm-node-${backup}`])
+  assert.equal(group.interval, 30)
+  assert.equal(group.timeout, 2000)
+  assert.equal(group['max-failed-times'], 2)
+  assert.equal(config.listeners.find(item => item.port === 17892).proxy, group.name)
+  const state = JSON.parse(await readFile(f.statePath, 'utf8'))
+  assert.equal(state.version, 2)
+  assert.equal(state.ports['17892'].nodeId, primary)
+  assert.deepEqual(state.ports['17892'].nodeIds, [primary, backup])
+})
+
+test('serializes concurrent port mutations without losing either port', async () => {
+  const f = await fixture()
+  await ensureEmbeddedCore(f.root, { statePath: f.statePath, configPath: f.configPath, controllerUrl: '' })
+  const nodes = (await loadSubscriptionCatalog(f.root)).nodes
+  const primary = nodes.find(item => item.name === '日本 A').id, backup = nodes.find(item => item.name === '美国 B').id
+  const common = { source: f.root, protocol: 'Mixed', statePath: f.statePath, configPath: f.configPath, controllerUrl: '' }
+  await Promise.all([
+    applyEmbeddedPort({ ...common, port: 17892, nodeId: primary }),
+    applyEmbeddedPort({ ...common, port: 17900, nodeIds: [primary, backup], strategy: 'fallback' }),
+  ])
+  const state = JSON.parse(await readFile(f.statePath, 'utf8'))
+  assert.ok(state.ports['17892'])
+  assert.ok(state.ports['17900'])
+  const config = YAML.parse(await readFile(f.configPath, 'utf8'))
+  assert.ok(config.listeners.some(item => item.port === 17892))
+  assert.ok(config.listeners.some(item => item.port === 17900))
 })
 
 test('deletes an embedded listener and preserves the other ports', async () => {
@@ -59,4 +125,5 @@ test('deletes an embedded listener and preserves the other ports', async () => {
   assert.equal(removed.removed, true)
   const config = YAML.parse(await readFile(f.configPath, 'utf8'))
   assert.equal(config.listeners.some(item => item.port === 17891), false)
+  assert.equal(config['proxy-groups'].some(item => item.name === 'PPM-17891'), false)
 })

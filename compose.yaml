@@ -17,6 +17,13 @@ services:
       PORT: 4180
       PROBE_HOST: mihomo-core
       MIHOMO_CONFIG_PATH: /catalog
+      SUBSCRIPTION_MODE: ${SUBSCRIPTION_MODE:-native}
+      SUBSCRIPTION_DB: /data/subscriptions.sqlite
+      SUBSCRIPTION_MASTER_KEY: ${MIHOMO_CONTROLLER_SECRET}
+      SUBSCRIPTION_LEGACY_SOURCE: /catalog
+      SUBSCRIPTION_FETCH_TIMEOUT_MS: 20000
+      SUBSCRIPTION_MAX_BYTES: 5242880
+      SUBSCRIPTION_USER_AGENT: ${SUBSCRIPTION_USER_AGENT:-mihomo/1.19.28}
       EMBEDDED_CORE_ENABLED: "true"
       EMBEDDED_CORE_STATE_PATH: /data/embedded-core.json
       EMBEDDED_CORE_CONFIG_PATH: /mihomo/config.yaml
@@ -26,10 +33,6 @@ services:
       EMBEDDED_CORE_PORT_RANGES: 17891-17893,17900-17999
       AUTH_SESSION_DB: /data/sessions.sqlite
     volumes:
-      - type: bind
-        source: ${CATALOG_SOURCE}
-        target: /catalog
-        read_only: false
       - type: volume
         source: proxy-session-data
         target: /data

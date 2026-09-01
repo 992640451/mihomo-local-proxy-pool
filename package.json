@@ -2,8 +2,10 @@
   "name": "proxy-port-manager",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
+    "init": "node scripts/init.mjs",
     "dev": "concurrently -k -n API,WEB \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite --host 127.0.0.1",
     "dev:api": "node server/index.mjs",
@@ -12,16 +14,19 @@
     "build": "vite build",
     "test": "node --test tests/*.test.mjs"
   },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "dependencies": {
-    "express": "latest",
+    "express": "5.2.1",
     "undici": "^8.10.0",
-    "yaml": "latest"
+    "yaml": "2.9.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "latest",
-    "concurrently": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "vite": "latest"
+    "@vitejs/plugin-react": "6.0.5",
+    "concurrently": "10.0.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "vite": "8.2.1"
   }
 }

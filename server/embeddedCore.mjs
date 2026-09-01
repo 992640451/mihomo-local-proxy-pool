@@ -2,8 +2,25 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import YAML from 'yaml'
+import { buildProxyGroup, LISTENER_TYPES, normalizePortConfig, PORT_STRATEGIES, validatePortConfig } from '../shared/portConfig.js'
 
-const LISTENER_TYPES = { Mixed: 'mixed', MIXED: 'mixed', HTTP: 'http', SOCKS5: 'socks', SOCKS: 'socks' }
+let mutationQueue = Promise.resolve()
+
+function emptyState() { return { version: 2, ports: {} } }
+
+function normalizeState(value = {}) {
+  const state = emptyState()
+  for (const [port, item] of Object.entries(value?.ports && typeof value.ports === 'object' ? value.ports : {})) {
+    state.ports[String(port)] = normalizePortConfig({ ...item, port: Number(port) })
+  }
+  return state
+}
+
+function serializeMutation(operation) {
+  const result = mutationQueue.then(operation, operation)
+  mutationQueue = result.catch(() => {})
+  return result
+}
 
 async function exists(filename) {
   try { await stat(filename); return true } catch { return false }
@@ -50,7 +67,12 @@ function defaultOptions(options = {}) {
     controllerSecret: options.controllerSecret === undefined ? (process.env.EMBEDDED_CORE_SECRET || '') : options.controllerSecret,
     controllerConfigPath: options.controllerConfigPath || process.env.EMBEDDED_CORE_HOST_CONFIG_PATH || '/home/mihomo/config.yaml',
     portRanges: options.portRanges === undefined ? (process.env.EMBEDDED_CORE_PORT_RANGES || '') : options.portRanges,
+    definitionProvider: typeof options.definitionProvider === 'function' ? options.definitionProvider : null,
   }
+}
+
+async function resolveDefinitions(source, options) {
+  return options.definitionProvider ? await options.definitionProvider() : loadDefinitions(source)
 }
 
 function portAllowed(port, ranges) {
@@ -64,15 +86,29 @@ function portAllowed(port, ranges) {
 async function readState(options) {
   try {
     const parsed = JSON.parse(await readFile(options.statePath, 'utf8'))
-    return { version: 1, ports: parsed?.ports && typeof parsed.ports === 'object' ? parsed.ports : {} }
+    return normalizeState(parsed)
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
     return null
   }
 }
 
+async function backupLegacyState(options) {
+  try {
+    const raw = await readFile(options.statePath, 'utf8')
+    const parsed = JSON.parse(raw)
+    if (Number(parsed?.version || 1) >= 2) return null
+    const backupPath = `${options.statePath}.v1.bak`
+    if (!await exists(backupPath)) await atomicWrite(backupPath, raw)
+    return backupPath
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
 async function migrateState(source, definitions) {
-  const state = { version: 1, ports: {} }
+  const state = emptyState()
   const sourceInfo = await stat(source)
   const runtimePath = sourceInfo.isFile() ? source : path.join(source, 'clash-verge.yaml')
   if (!await exists(runtimePath)) return state
@@ -85,6 +121,8 @@ async function migrateState(source, definitions) {
     const chosen = candidates[0]
     state.ports[String(port)] = {
       nodeId: chosen.id,
+      nodeIds: [chosen.id],
+      strategy: 'select',
       protocol: ({ mixed: 'Mixed', http: 'HTTP', socks: 'SOCKS5' })[String(listener.type || '').toLowerCase()] || 'Mixed',
       enabled: true,
     }
@@ -94,19 +132,25 @@ async function migrateState(source, definitions) {
 
 function buildConfig(state, definitions, secret) {
   const byId = new Map(definitions.map(item => [item.id, item]))
-  const proxies = new Map(), listeners = []
-  for (const [portText, item] of Object.entries(state.ports).sort(([a], [b]) => Number(a) - Number(b))) {
+  const proxies = new Map(), proxyGroups = [], listeners = []
+  for (const [portText, rawItem] of Object.entries(state.ports).sort(([a], [b]) => Number(a) - Number(b))) {
+    const item = normalizePortConfig({ ...rawItem, port: Number(portText) })
     if (!item.enabled) continue
-    const definition = byId.get(item.nodeId)
-    if (!definition) throw new Error(`端口 ${portText} 的订阅节点已不存在：${item.nodeId}`)
-    const internalName = `ppm-node-${definition.id}`
-    if (!proxies.has(internalName)) proxies.set(internalName, { ...definition.raw, name: internalName })
+    const internalNames = item.nodeIds.map(id => {
+      const definition = byId.get(id)
+      if (!definition) throw new Error(`端口 ${portText} 的订阅节点已不存在：${id}`)
+      const internalName = `ppm-node-${definition.id}`
+      if (!proxies.has(internalName)) proxies.set(internalName, { ...definition.raw, name: internalName })
+      return internalName
+    })
+    const proxyGroup = buildProxyGroup(item, internalNames)
+    proxyGroups.push(proxyGroup)
     listeners.push({
       name: `ppm-${portText}`,
       type: LISTENER_TYPES[item.protocol] || 'mixed',
       listen: '0.0.0.0',
       port: Number(portText),
-      proxy: internalName,
+      proxy: proxyGroup.name,
       udp: true,
     })
   }
@@ -119,6 +163,7 @@ function buildConfig(state, definitions, secret) {
     'external-controller': '0.0.0.0:9090',
     secret,
     proxies: [...proxies.values()],
+    'proxy-groups': proxyGroups,
     listeners,
     rules: ['MATCH,DIRECT'],
   }
@@ -136,7 +181,7 @@ async function reloadCore(options) {
 }
 
 async function persist(source, state, options, shouldReload) {
-  const definitions = await loadDefinitions(source)
+  const definitions = await resolveDefinitions(source, options)
   const config = buildConfig(state, definitions, options.controllerSecret)
   await atomicWrite(options.statePath, `${JSON.stringify(state, null, 2)}\n`)
   await atomicWrite(options.configPath, YAML.stringify(config))
@@ -150,61 +195,82 @@ export function isEmbeddedCoreEnabled() {
 
 export async function ensureEmbeddedCore(source, rawOptions = {}) {
   const options = defaultOptions(rawOptions)
-  const definitions = await loadDefinitions(source)
+  const definitions = await resolveDefinitions(source, options)
+  const legacyBackupPath = await backupLegacyState(options)
   const existing = await readState(options)
-  const state = existing || await migrateState(source, definitions)
+  const state = existing || (options.definitionProvider ? emptyState() : await migrateState(source, definitions))
   const result = await persist(source, state, options, false)
-  return { migrated: !existing, ports: Object.keys(state.ports).length, configPath: options.configPath, ...result }
+  return { migrated: !existing || Boolean(legacyBackupPath), legacyBackupPath, ports: Object.keys(state.ports).length, configPath: options.configPath, ...result }
+}
+
+export function syncEmbeddedCore(source, rawOptions = {}) {
+  return serializeMutation(async () => {
+    const options = defaultOptions(rawOptions), state = await readState(options) || emptyState()
+    return persist(source, state, options, true)
+  })
 }
 
 export async function embeddedListeners(source, rawOptions = {}) {
-  const options = defaultOptions(rawOptions), state = await readState(options) || { version: 1, ports: {} }
-  const definitions = await loadDefinitions(source), byId = new Map(definitions.map(item => [item.id, item]))
-  return Object.entries(state.ports).filter(([, item]) => item.enabled).map(([port, item]) => {
-    const definition = byId.get(item.nodeId)
+  const options = defaultOptions(rawOptions), state = await readState(options) || emptyState()
+  const definitions = await resolveDefinitions(source, options), byId = new Map(definitions.map(item => [item.id, item]))
+  return Object.entries(state.ports).map(([port, rawItem]) => {
+    const item = normalizePortConfig({ ...rawItem, port: Number(port) })
+    const selected = item.nodeIds.map(id => byId.get(id)).filter(Boolean)
+    const missing = item.nodeIds.find(id => !byId.has(id))
     return {
       id: `embedded-listener-${port}`,
       port: Number(port),
-      protocol: String(item.protocol || 'Mixed').toUpperCase(),
+      protocol: ({ mixed: 'Mixed', http: 'HTTP', socks: 'SOCKS5' })[String(LISTENER_TYPES[item.protocol] || '').toLowerCase()] || 'Mixed',
       listen: '0.0.0.0',
-      routeName: definition?.raw?.name || `缺失节点 ${item.nodeId}`,
+      routeName: `${PORT_STRATEGIES[item.strategy].label} · ${item.nodeIds.length} 节点`,
       listenerName: `ppm-${port}`,
       nodeId: item.nodeId,
-      enabled: true,
+      nodeIds: item.nodeIds,
+      strategy: item.strategy,
+      strategyOptions: item.strategyOptions,
+      enabled: item.enabled !== false,
       managedBy: 'embedded-mihomo',
-      lastChecked: definition ? '内置核心监听' : '节点已不存在',
+      lastChecked: item.enabled === false ? '配置已停用' : missing ? `节点已不存在：${missing}` : `内置核心监听 · 首选 ${selected[0]?.raw?.name || '未知'}`,
     }
   })
 }
 
-export async function applyEmbeddedPort({ source, port, nodeId: selectedNodeId, protocol = 'Mixed', enabled = true, ...rawOptions }) {
+async function applyEmbeddedPortMutation({ source, port, nodeId, nodeIds, strategy, strategyOptions, protocol = 'Mixed', enabled = true, ...rawOptions }) {
   const numericPort = Number(port), normalizedProtocol = String(protocol)
-  if (!Number.isInteger(numericPort) || numericPort < 1024 || numericPort > 65535) throw new Error('端口必须是 1024–65535 的整数')
   const options = defaultOptions(rawOptions)
-  if (!portAllowed(numericPort, options.portRanges)) throw new Error(`端口 ${numericPort} 不在内置核心已发布范围内：${options.portRanges}`)
-  if (!LISTENER_TYPES[normalizedProtocol]) throw new Error('仅支持 Mixed、HTTP、SOCKS5 协议')
-  const definitions = await loadDefinitions(source)
-  const definition = definitions.find(item => item.id === selectedNodeId)
-  if (!definition) throw new Error('所选节点不存在或订阅已更新')
-  const previousState = await readState(options) || { version: 1, ports: {} }
+  const definitions = await resolveDefinitions(source, options)
+  const availableNodeIds = new Set(definitions.map(item => item.id))
+  const normalized = validatePortConfig({ port: numericPort, nodeId, nodeIds, strategy, strategyOptions, protocol: normalizedProtocol, enabled }, {
+    availableNodeIds,
+    portAllowed: value => portAllowed(value, options.portRanges),
+  })
+  const primary = definitions.find(item => item.id === normalized.nodeId)
+  const previousState = await readState(options) || emptyState()
   const previousConfig = await exists(options.configPath) ? await readFile(options.configPath, 'utf8') : null
   const nextState = structuredClone(previousState)
-  nextState.ports[String(numericPort)] = { nodeId: definition.id, protocol: normalizedProtocol, enabled: Boolean(enabled) }
+  nextState.version = 2
+  nextState.ports[String(numericPort)] = normalized
   try {
     const result = await persist(source, nextState, options, true)
     const listener = result.config.listeners.find(item => item.port === numericPort)
-    return { port: numericPort, nodeId: definition.id, proxy: definition.raw.name, protocol: normalizedProtocol, enabled: Boolean(enabled), listener, embeddedCore: true, reloaded: result.reloaded, reloadRequired: result.reloadRequired }
+    const proxyGroup = (result.config['proxy-groups'] || []).find(item => item.name === listener?.proxy)
+    return { ...normalized, proxy: primary.raw.name, routeName: `${PORT_STRATEGIES[normalized.strategy].label} · ${normalized.nodeIds.length} 节点`, listener, proxyGroup, embeddedCore: true, reloaded: result.reloaded, reloadRequired: result.reloadRequired }
   } catch (error) {
     await atomicWrite(options.statePath, `${JSON.stringify(previousState, null, 2)}\n`).catch(() => {})
     if (previousConfig !== null) await atomicWrite(options.configPath, previousConfig).catch(() => {})
+    if (previousConfig !== null) await reloadCore(options).catch(() => {})
     throw error
   }
 }
 
-export async function deleteEmbeddedPort({ source, port, ...rawOptions }) {
+export function applyEmbeddedPort(options) {
+  return serializeMutation(() => applyEmbeddedPortMutation(options))
+}
+
+async function deleteEmbeddedPortMutation({ source, port, ...rawOptions }) {
   const numericPort = Number(port)
   if (!Number.isInteger(numericPort) || numericPort < 1024 || numericPort > 65535) throw new Error('端口必须是 1024–65535 的整数')
-  const options = defaultOptions(rawOptions), previousState = await readState(options) || { version: 1, ports: {} }
+  const options = defaultOptions(rawOptions), previousState = await readState(options) || emptyState()
   if (!Object.prototype.hasOwnProperty.call(previousState.ports, String(numericPort))) return { port: numericPort, removed: false, embeddedCore: true, reloaded: false, reloadRequired: false }
   const previousConfig = await exists(options.configPath) ? await readFile(options.configPath, 'utf8') : null
   const nextState = structuredClone(previousState); delete nextState.ports[String(numericPort)]
@@ -214,8 +280,13 @@ export async function deleteEmbeddedPort({ source, port, ...rawOptions }) {
   } catch (error) {
     await atomicWrite(options.statePath, `${JSON.stringify(previousState, null, 2)}\n`).catch(() => {})
     if (previousConfig !== null) await atomicWrite(options.configPath, previousConfig).catch(() => {})
+    if (previousConfig !== null) await reloadCore(options).catch(() => {})
     throw error
   }
+}
+
+export function deleteEmbeddedPort(options) {
+  return serializeMutation(() => deleteEmbeddedPortMutation(options))
 }
 
 export async function embeddedCoreStatus(rawOptions = {}) {
@@ -227,4 +298,41 @@ export async function embeddedCoreStatus(rawOptions = {}) {
     const body = await response.json()
     return { enabled: true, reachable: true, version: body.version || null, meta: body.meta === true }
   } catch (error) { return { enabled: true, reachable: false, version: null, error: error.message } }
+}
+
+async function controllerJson(options, pathname) {
+  const response = await fetch(`${options.controllerUrl.replace(/\/$/, '')}${pathname}`, {
+    headers: options.controllerSecret ? { Authorization: `Bearer ${options.controllerSecret}` } : {},
+  })
+  if (!response.ok) throw new Error(`Mihomo Controller 返回 HTTP ${response.status}`)
+  return response.json()
+}
+
+export async function embeddedPortStatus(source, port, rawOptions = {}) {
+  const numericPort = Number(port), options = defaultOptions(rawOptions)
+  if (!Number.isInteger(numericPort)) throw new Error('端口无效')
+  const state = await readState(options) || emptyState()
+  const item = state.ports[String(numericPort)]
+  if (!item) throw new Error('端口配置不存在')
+  const definitions = await resolveDefinitions(source, options), byId = new Map(definitions.map(value => [value.id, value]))
+  const normalized = normalizePortConfig({ ...item, port: numericPort })
+  if (!options.controllerUrl) return { port: numericPort, strategy: normalized.strategy, activeNodeId: null, activeNodeName: null, reachable: false, nodes: [] }
+  const groupName = `PPM-${numericPort}`
+  const group = await controllerJson(options, `/proxies/${encodeURIComponent(groupName)}`)
+  const statuses = await Promise.all(normalized.nodeIds.map(async id => {
+    const definition = byId.get(id), internalName = `ppm-node-${id}`
+    let detail = null
+    try { detail = await controllerJson(options, `/proxies/${encodeURIComponent(internalName)}`) } catch {}
+    return { nodeId: id, nodeName: definition?.raw?.name || `缺失节点 ${id}`, healthy: detail ? detail.alive !== false : null, history: Array.isArray(detail?.history) ? detail.history.slice(-1) : [] }
+  }))
+  const activeInternalName = String(group.now || '')
+  const activeNodeId = activeInternalName.startsWith('ppm-node-') ? activeInternalName.slice('ppm-node-'.length) : null
+  return {
+    port: numericPort,
+    strategy: normalized.strategy,
+    activeNodeId,
+    activeNodeName: activeNodeId ? byId.get(activeNodeId)?.raw?.name || null : null,
+    reachable: true,
+    nodes: statuses,
+  }
 }

@@ -30,3 +30,44 @@ export async function probeProxyEgress({ host, port, lookupUrl = process.env.EGR
     await dispatcher.close()
   }
 }
+
+export async function verifyProxyPool({ host, port, attempts = 8, probe = probeProxyEgress }) {
+  const numericAttempts = Number(attempts)
+  if (!Number.isInteger(numericAttempts) || numericAttempts < 2 || numericAttempts > 20) throw new Error('轮询验证次数必须是 2–20 的整数')
+  const samples = []
+  for (let attempt = 1; attempt <= numericAttempts; attempt += 1) {
+    const started = Date.now()
+    try {
+      const result = await probe({ host, port })
+      samples.push({ attempt, ok: true, ...result })
+    } catch (error) {
+      samples.push({ attempt, ok: false, error: error.message, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() })
+    }
+  }
+  const successful = samples.filter(sample => sample.ok)
+  const exits = new Map()
+  for (const sample of successful) {
+    const current = exits.get(sample.ip) || {
+      ip: sample.ip, countryCode: sample.countryCode, country: sample.country, region: sample.region,
+      city: sample.city, flag: sample.flag, count: 0, totalLatencyMs: 0,
+    }
+    current.count += 1
+    current.totalLatencyMs += Number(sample.latencyMs || 0)
+    exits.set(sample.ip, current)
+  }
+  const distribution = [...exits.values()].map(({ totalLatencyMs, ...exit }) => ({
+    ...exit,
+    averageLatencyMs: Math.round(totalLatencyMs / exit.count),
+  }))
+  return {
+    host,
+    port: Number(port),
+    attempts: numericAttempts,
+    successes: successful.length,
+    failures: numericAttempts - successful.length,
+    uniqueExitCount: distribution.length,
+    distribution,
+    samples,
+    checkedAt: new Date().toISOString(),
+  }
+}

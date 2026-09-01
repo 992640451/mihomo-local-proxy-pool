@@ -16,7 +16,7 @@ async function startServer(port, env) {
   let stderr = ''
   child.stderr.on('data', chunk => { stderr += chunk })
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error(`server timeout: ${stderr}`)), 5000)
+    const timer = setTimeout(() => finish(new Error(`server timeout: ${stderr}`)), 15000)
     const onData = () => finish()
     const onExit = code => finish(new Error(`server exited ${code}: ${stderr}`))
     const finish = error => {

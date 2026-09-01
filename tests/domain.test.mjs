@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildMihomoPortConfig, createInitialPorts, dedupePortsByPort, enrichPort, filterPorts, nextAvailablePort, normalizePort, removePortById, reorderPortNode, restorePortState, validatePortDraft } from '../src/domain.js'
+import { buildMihomoPortConfig, createInitialPorts, dedupePortsByPort, enrichPort, filterPorts, mergeSelectedNodeIds, nextAvailablePort, normalizePort, proxyAddressesForPort, removePortById, reorderPortNode, restorePortState, validatePortDraft } from '../src/domain.js'
 import { classifyCountry } from '../server/subscriptionCatalog.mjs'
 
 const nodes = [
@@ -57,6 +57,20 @@ test('filters a multi-node port by any member country and provider', () => {
 test('reorders fallback nodes while preserving the rest of the pool', () => {
   assert.deepEqual(reorderPortNode(['jp11','us02','br20'],'us02',-1),['us02','jp11','br20'])
   assert.deepEqual(reorderPortNode(['jp11','us02','br20'],'jp11',-1),['jp11','us02','br20'])
+})
+
+test('appends all visible nodes without changing the existing pool order', () => {
+  assert.deepEqual(mergeSelectedNodeIds(['us02','jp11'],['jp11','br20']),['us02','jp11','br20'])
+  assert.deepEqual(mergeSelectedNodeIds(['us02'],['br20','br20','']),['us02','br20'])
+})
+
+test('builds directly usable proxy addresses for every listener protocol', () => {
+  assert.deepEqual(proxyAddressesForPort({ port:17900,protocol:'HTTP' }), [{ protocol:'HTTP',url:'http://127.0.0.1:17900' }])
+  assert.deepEqual(proxyAddressesForPort({ port:17901,protocol:'SOCKS5' }), [{ protocol:'SOCKS5',url:'socks5h://127.0.0.1:17901' }])
+  assert.deepEqual(proxyAddressesForPort({ port:17902,protocol:'Mixed' }), [
+    { protocol:'HTTP',url:'http://127.0.0.1:17902' },
+    { protocol:'SOCKS5',url:'socks5h://127.0.0.1:17902' },
+  ])
 })
 
 test('builds Mihomo listener and consistent-hashing group for one port', () => {

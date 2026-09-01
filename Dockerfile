@@ -9,6 +9,7 @@ RUN npm ci
 
 COPY index.html vite.config.js ./
 COPY src ./src
+COPY shared ./shared
 RUN npm run build
 
 FROM node:22.23.2-bookworm-slim AS runtime
@@ -24,6 +25,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 RUN mkdir -p /data /mihomo && chown node:node /data /mihomo
 
 COPY server ./server
+COPY shared ./shared
 COPY --from=builder /app/dist ./dist
 
 USER node

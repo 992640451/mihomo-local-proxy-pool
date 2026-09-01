@@ -4,28 +4,12 @@ export const DEFAULT_PORT_SPECS = [
   { port: 17893, providerIncludes: '狗狗', nodeIncludes: '巴西' },
 ]
 
-export const PORT_STRATEGIES = {
-  select: { label: '手动选择', description: '固定使用所选主节点', minNodes: 1 },
-  fallback: { label: '主备切换', description: '主节点不可用时按顺序切换', minNodes: 2 },
-  'url-test': { label: '自动优选', description: '定期测速并使用延迟最低的节点', minNodes: 2 },
-  'consistent-hashing': { label: '稳定均衡', description: '同一目标地址稳定分配到同一节点', minNodes: 2 },
-  'round-robin': { label: '轮询均衡', description: '新连接依次分配给不同节点', minNodes: 2 },
-}
+import { buildProxyGroup, DEFAULT_STRATEGY_OPTIONS, normalizePortConfig, PORT_STRATEGIES, portNodeIds } from '../shared/portConfig.js'
 
-export const DEFAULT_STRATEGY_OPTIONS = {
-  healthCheckUrl: 'https://www.gstatic.com/generate_204', intervalSeconds: 60,
-  timeoutMs: 5000, toleranceMs: 50, maxFailedTimes: 3,
-}
-
-export function portNodeIds(port = {}) {
-  const values = Array.isArray(port.nodeIds) ? port.nodeIds : port.nodeId ? [port.nodeId] : []
-  return [...new Set(values.filter(Boolean))]
-}
+export { DEFAULT_STRATEGY_OPTIONS, PORT_STRATEGIES, portNodeIds }
 
 export function normalizePort(port = {}) {
-  const nodeIds = portNodeIds(port)
-  const strategy = PORT_STRATEGIES[port.strategy] ? port.strategy : nodeIds.length > 1 ? 'fallback' : 'select'
-  return { ...port, nodeId: nodeIds[0] || '', nodeIds, strategy, strategyOptions: { ...DEFAULT_STRATEGY_OPTIONS, ...(port.strategyOptions || {}) } }
+  return normalizePortConfig(port)
 }
 
 export function createInitialPorts(nodes, listeners = []) {
@@ -103,18 +87,31 @@ export function reorderPortNode(nodeIds, nodeId, direction) {
   return current
 }
 
+export function mergeSelectedNodeIds(selectedIds = [], candidateIds = []) {
+  const merged = [], seen = new Set()
+  for (const id of [...selectedIds, ...candidateIds]) {
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    merged.push(id)
+  }
+  return merged
+}
+
+export function proxyAddressesForPort(rawPort = {}, host = '127.0.0.1') {
+  const protocol = String(rawPort.protocol || 'Mixed').trim().toUpperCase()
+  const endpoint = `${host}:${Number(rawPort.port)}`
+  if (protocol === 'HTTP') return [{ protocol: 'HTTP', url: `http://${endpoint}` }]
+  if (protocol === 'SOCKS5' || protocol === 'SOCKS') return [{ protocol: 'SOCKS5', url: `socks5h://${endpoint}` }]
+  return [
+    { protocol: 'HTTP', url: `http://${endpoint}` },
+    { protocol: 'SOCKS5', url: `socks5h://${endpoint}` },
+  ]
+}
+
 export function buildMihomoPortConfig(rawPort, nodes = []) {
   const port = normalizePort(rawPort)
   const names = port.nodeIds.map(id => nodes.find(node => node.id === id)?.name).filter(Boolean)
-  const group = { name: `PPM-${port.port}`, type: port.strategy, proxies: names }
-  if (port.strategy === 'consistent-hashing' || port.strategy === 'round-robin') { group.type = 'load-balance'; group.strategy = port.strategy }
-  if (group.type !== 'select') {
-    group.url = port.strategyOptions.healthCheckUrl
-    group.interval = Number(port.strategyOptions.intervalSeconds)
-    group.timeout = Number(port.strategyOptions.timeoutMs)
-    group['max-failed-times'] = Number(port.strategyOptions.maxFailedTimes)
-  }
-  if (port.strategy === 'url-test') group.tolerance = Number(port.strategyOptions.toleranceMs)
+  const group = buildProxyGroup(port, names)
   const listenerTypes = { Mixed: 'mixed', MIXED: 'mixed', HTTP: 'http', SOCKS5: 'socks' }
   return { proxyGroup: group, listener: { name: `ppm-${port.port}`, type: listenerTypes[port.protocol] || String(port.protocol || 'mixed').toLowerCase(), listen: '127.0.0.1', port: Number(port.port), proxy: group.name, udp: true } }
 }

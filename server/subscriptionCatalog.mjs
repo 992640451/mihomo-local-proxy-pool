@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import YAML from 'yaml'
+import { strategyFromProxyGroup, strategyOptionsFromProxyGroup } from '../shared/portConfig.js'
 
 const COUNTRIES = [
   ['香港','HK','🇭🇰'],['日本','JP','🇯🇵'],['美国','US','🇺🇸'],['新加坡','SG','🇸🇬'],['台湾','TW','🇹🇼'],
@@ -16,6 +17,25 @@ export function classifyCountry(name) {
   const hit = COUNTRIES.find(([keyword]) => name.includes(keyword))
   if (!hit) return { country: '其他', code: 'ZZ', flag: '🌐' }
   return { country: hit[0] === '澳洲' ? '澳大利亚' : hit[0] === '迪拜' ? '阿联酋' : hit[0], code: hit[1], flag: hit[2] }
+}
+
+export function buildNativeCatalog(subscriptions, definitions) {
+  const active = definitions.filter(item => item.active !== false)
+  const nodes = active.map(item => {
+    const name = String(item.raw?.name || ''), geo = classifyCountry(name)
+    return { id: item.id, providerId: item.providerId, provider: item.provider, name, city: geo.country, ...geo, delay: null, healthy: true }
+  })
+  const countries = [...new Map(nodes.map(node => [node.code, { name: node.country, code: node.code, flag: node.flag, count: 0 }])).values()]
+  countries.forEach(country => { country.count = nodes.filter(node => node.code === country.code).length })
+  countries.sort((a,b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-CN'))
+  return {
+    source: 'Proxy Port Manager 原生订阅库', updatedAt: new Date().toISOString(),
+    providers: subscriptions.filter(item => item.enabled).map(item => ({
+      id: item.id, name: item.name, file: null, nodeCount: item.nodeCount,
+      lastSuccessAt: item.lastSuccessAt, lastError: item.lastError,
+    })),
+    countries, nodes, listeners: [],
+  }
 }
 
 async function loadVergeCatalog(configDir) {
@@ -59,9 +79,17 @@ function listenersFromDocument(doc, nodes) {
   }
   const listeners = (doc.listeners || []).filter(item => item?.port).map((item, index) => {
     const routeGeo = classifyCountry(`${item.name || ''} ${item.proxy || ''}`)
-    const node = resolveNode(item.proxy)
+    const group = groups.get(item.proxy)
+    const groupNodes = (group?.proxies || []).map(name => byName.get(name)).filter(Boolean)
+    const node = groupNodes[0] || resolveNode(item.proxy)
       || nodes.find(value => routeGeo.code !== 'ZZ' && value.code === routeGeo.code) || nodes[0]
-    return { id: `mihomo-listener-${item.port}-${index}`, port: Number(item.port), protocol: String(item.type || 'mixed').toUpperCase(), listen: item.listen || '127.0.0.1', routeName: item.proxy || item.name || 'DIRECT', listenerName: item.name || `LISTENER-${item.port}`, nodeId: node?.id || '', enabled: true, managedBy: 'mihomo', lastChecked: '服务端监听' }
+    const nodeIds = groupNodes.length ? groupNodes.map(value => value.id) : node ? [node.id] : []
+    return {
+      id: `mihomo-listener-${item.port}-${index}`, port: Number(item.port), protocol: ({ mixed: 'Mixed', http: 'HTTP', socks: 'SOCKS5' })[String(item.type || 'mixed').toLowerCase()] || 'Mixed',
+      listen: item.listen || '127.0.0.1', routeName: item.proxy || item.name || 'DIRECT', listenerName: item.name || `LISTENER-${item.port}`,
+      nodeId: nodeIds[0] || '', nodeIds, strategy: strategyFromProxyGroup(group), strategyOptions: strategyOptionsFromProxyGroup(group),
+      enabled: true, managedBy: 'mihomo', lastChecked: '服务端监听',
+    }
   })
   if (doc['mixed-port']) {
     const routeMode = String(doc.mode || 'rule').toLowerCase()
