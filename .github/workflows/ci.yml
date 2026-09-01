@@ -21,5 +21,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Prepare example environment
+        run: cp .env.example .env
       - run: docker compose --env-file .env.example config
       - run: docker build -t proxy-port-manager:ci .
