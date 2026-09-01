@@ -27,6 +27,6 @@
     "concurrently": "10.0.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "vite": "8.2.1"
+    "vite": "8.2.2"
   }
 }
