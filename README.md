@@ -1,123 +1,113 @@
 <p align="center">
-  <img src="assets/readme-hero.png" alt="Proxy Port Manager 本地代理池路由示意图" width="100%" />
+  <img src="assets/readme-hero.png" alt="三个代理节点汇入一个本地端口，再连接到本机应用" width="100%" />
 </p>
 
 <h1 align="center">Proxy Port Manager</h1>
 
 <p align="center">
-  面向本机应用的可视化 Mihomo 代理池管理器
+  把多个 Mihomo / Clash 节点，变成一个稳定、可观察的本地代理端口。
 </p>
 
 <p align="center">
-  <a href="https://github.com/992640451/mihomo-local-proxy-pool/actions/workflows/ci.yml"><img src="https://github.com/992640451/mihomo-local-proxy-pool/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22d3ee.svg" alt="MIT License" /></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.0-f59e0b.svg" alt="Version 0.1.0" /></a>
-  <img src="https://img.shields.io/badge/Node.js-%E2%89%A522-f59e0b.svg" alt="Node.js 22 or newer" />
-  <img src="https://img.shields.io/badge/scope-localhost-34d399.svg" alt="Localhost only" />
+  简体中文 · <a href="README_EN.md">English</a>
 </p>
 
-一个面向本机应用的可视化代理池管理器。它把 Mihomo 作为独立核心运行，将多个订阅节点组合成固定的 HTTP、SOCKS5 或 Mixed 端口，并提供轮询、主备切换、延迟优选和稳定哈希策略。
+<p align="center">
+  <a href="https://github.com/992640451/mihomo-local-proxy-pool/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/992640451/mihomo-local-proxy-pool/ci.yml?branch=main&style=flat-square" alt="CI" /></a>
+  <a href="https://github.com/992640451/mihomo-local-proxy-pool/releases/latest"><img src="https://img.shields.io/github/v/release/992640451/mihomo-local-proxy-pool?style=flat-square" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/992640451/mihomo-local-proxy-pool?style=flat-square" alt="MIT License" /></a>
+  <a href="https://github.com/992640451/mihomo-local-proxy-pool/stargazers"><img src="https://img.shields.io/github/stars/992640451/mihomo-local-proxy-pool?style=flat-square" alt="GitHub Stars" /></a>
+  <img src="https://img.shields.io/badge/scope-localhost-34d399?style=flat-square" alt="Localhost only" />
+</p>
 
-默认配置只向 `127.0.0.1` 发布管理页面和代理端口，不会开放到局域网或公网。
+<p align="center">
+  <a href="#3-分钟启动"><strong>3 分钟启动</strong></a> ·
+  <a href="#第一次使用"><strong>第一次使用</strong></a> ·
+  <a href="#如何让应用使用代理"><strong>接入应用</strong></a> ·
+  <a href="#常见问题"><strong>常见问题</strong></a>
+</p>
 
-> 当前版本定位为单机、本地代理池。它不提供代理节点，也不面向公网或多租户部署。
-
-## 导航
-
-- [功能](#功能)
-- [快速开始](#快速开始)
-- [创建第一个轮询池](#创建第一个轮询池)
-- [使用代理池](#使用代理池)
-- [从 Clash Verge 迁移](#从-clash-verge-迁移)
-- [数据、安全与隐私](#数据安全与隐私)
-- [开发与验证](#开发与验证)
-- [常见问题](#常见问题)
-- [变更记录](CHANGELOG.md)
-
-## 功能
-
-- 导入 URL 或粘贴 Mihomo/Clash YAML，自动刷新并保留最后一个可用版本。
-- 为一个本地端口选择多个节点，支持手动、主备、自动优选、稳定哈希和轮询。
-- 定期健康检查，自动跳过不可用节点。
-- 订阅、会话和端口池配置持久化，容器重建后仍可恢复。
-- 通过浏览器管理端口池，并检测 Listener 和 Mihomo 核心状态。
-- 可选迁移 Clash Verge 远程订阅，无需改变 Clash Verge 当前配置。
-
-## 架构
+---
 
 ```text
-本机应用
-  │ HTTP / SOCKS5
-  ▼
-127.0.0.1:17900 ──► Mihomo 策略组 ──► 健康订阅节点 ──► 互联网
-                           ▲
-                           │ 私有 Controller API
-                           │
-浏览器 ──► 127.0.0.1:4173 ──► Proxy Port Manager
+多个订阅节点  ──►  127.0.0.1:17900  ──►  浏览器 / 爬虫 / 开发工具
+                    固定本地入口
 ```
 
-## 快速开始
+你的应用只需要记住一个本地端口。节点选择、故障切换、健康检查和轮询都由 Proxy Port Manager 与 Mihomo 完成。
 
-需要 Git、Node.js 22 或更高版本，以及 Docker Desktop 或 Docker Engine with Compose。Windows 用户应让 Docker Desktop 运行 Linux containers；Linux 用户需要确保当前账号有权运行 `docker`。
+## 为什么使用它
 
-```bash
-git --version
-node --version
-docker compose version
-```
+| 固定入口 | 自动调度 | 看得见、可验证 |
+| --- | --- | --- |
+| 节点变化时，应用里的代理地址不用改 | 节点失败后自动跳过，支持 5 种策略 | 浏览器管理端口池，一键检测监听与出口分布 |
+
+适合本地开发、爬虫、自动化工具或任何需要稳定 HTTP / SOCKS5 代理入口的应用。
+
+> [!IMPORTANT]
+> 本项目只管理你有权使用的订阅，不提供代理节点。默认仅监听 `127.0.0.1`，定位是单机、本地代理池，不是公网代理服务。
+
+## 3 分钟启动
+
+### 1. 准备环境
+
+- Git
+- Node.js 22 或更高版本
+- Docker Desktop，或 Docker Engine + Compose
+
+Windows 用户请确认 Docker Desktop 正在使用 Linux containers。
+
+### 2. 安装并启动
 
 ```bash
 git clone https://github.com/992640451/mihomo-local-proxy-pool.git
 cd mihomo-local-proxy-pool
 npm run init
-docker compose config
-docker compose build --pull
-docker compose up -d
+docker compose up -d --build
 ```
 
-`npm run init` 会生成 `.env`、随机控制器密钥和一次性显示的管理密码。保存终端里显示的密码，然后访问：
+`npm run init` 会创建本机专用的 `.env`、随机密钥和管理员密码。请保存终端中显示的密码；密码不会写入仓库。
 
-```text
-http://127.0.0.1:4173
-```
+### 3. 打开管理页面
 
-首次登录后，在“订阅”页面导入 Mihomo/Clash YAML URL 或粘贴 YAML，再到“代理端口”页面创建端口池。
+访问 **http://127.0.0.1:4173**，使用初始化时显示的账号和密码登录。
 
-检查运行状态：
+检查服务是否正常：
 
 ```bash
 docker compose ps
-curl http://127.0.0.1:4173/healthz       # Linux/macOS
-curl.exe http://127.0.0.1:4173/healthz   # Windows PowerShell
+curl http://127.0.0.1:4173/healthz
 ```
 
-Compose 会一次发布 `17891-17893` 和 `17900-17999` 的完整端口范围。启动失败时，需要检查整个范围是否被其他程序占用，而不只是准备创建的单个端口。
+看到 `status: ok` 即表示管理服务已经就绪。
 
-## 创建第一个轮询池
+## 第一次使用
 
-1. 打开“订阅”，通过 URL 或粘贴 YAML 导入至少一个订阅。
-2. 打开“代理端口”，点击“新建端口池”。
-3. 输入 `17900`，协议选择 `Mixed`，使用方式选择“轮询均衡”。
-4. 从节点目录选择至少两个节点；健康检查可先保留默认值。
-5. 保存后服务会原子写入配置并热重载 Mihomo。
-6. 等待一次健康检查，然后点击该端口右侧“检测”；显示“Listener 可连接”即表示入口可用。
+1. 打开左侧 **订阅**，填写订阅 URL，或粘贴 Mihomo / Clash YAML。
+2. 打开 **代理端口**，点击 **新建端口池**。
+3. 使用端口 `17900`，协议选择 `Mixed`，再选择至少一个节点。
+4. 保存后点击 **检测**；显示“Listener 可连接”即表示端口可用。
+5. 点击端口旁的复制按钮，把代理地址粘贴到需要代理的应用中。
 
-自动策略只会使用通过健康检查的节点。所选节点不足两个、端口超出发布范围或节点已被订阅更新移除时，服务会拒绝保存并显示原因。
+想使用轮询时，选择至少两个节点，并把策略改成 **轮询均衡**。轮询只对新连接生效，已建立的 TCP 连接不会在节点之间迁移。
 
-## 使用代理池
+## 如何让应用使用代理
 
 假设已经创建 Mixed 端口 `17900`：
 
-```bash
-# HTTP/HTTPS
-curl --proxy http://127.0.0.1:17900 https://api.ipify.org       # Linux/macOS
-curl.exe --proxy http://127.0.0.1:17900 https://api.ipify.org   # Windows
+### 命令行
 
-# SOCKS5，并由代理端解析域名
+```bash
+# HTTP / HTTPS
+curl --proxy http://127.0.0.1:17900 https://api.ipify.org
+
+# SOCKS5，并让代理端解析域名
 curl --proxy socks5h://127.0.0.1:17900 https://api.ipify.org
 ```
 
-常见环境变量值如下；具体设置命令取决于 shell 或调用程序：
+Windows PowerShell 可把 `curl` 替换为 `curl.exe`。
+
+### 环境变量
 
 ```text
 HTTP_PROXY=http://127.0.0.1:17900
@@ -125,49 +115,125 @@ HTTPS_PROXY=http://127.0.0.1:17900
 ALL_PROXY=socks5h://127.0.0.1:17900
 ```
 
-轮询只对新连接生效；已建立的 TCP 连接不会在节点之间迁移。健康检查失败的节点会被跳过，因此实际参与轮询的节点数可能少于配置数量。
+浏览器、IDE、下载器和爬虫通常也支持直接填写代理地址：主机使用 `127.0.0.1`，端口使用你创建的端口。
 
-在代理端口页面点击“验证”，服务会顺序建立 8 个独立连接，并汇总成功率、唯一出口数量、出口 IP 命中次数和平均延迟。多个出口 IP 按近似均匀次数重复出现，说明出口轮换生效。不同节点也可能共用同一公网出口，因此“唯一出口为 1”不一定表示 Mihomo 没有切换节点；结合节点健康状态和 Mihomo 日志判断。该操作会访问配置的出口地理信息查询服务，请勿高频运行。
+## 如何确认轮询生效
+
+1. 为端口池选择至少两个健康节点。
+2. 策略选择 **轮询均衡** 并保存。
+3. 在端口列表点击 **验证**。
+4. 系统会建立 8 个独立连接，并显示成功率、出口 IP 分布和平均延迟。
+
+出现多个出口 IP，通常说明轮换已经生效。不同节点也可能共用同一公网出口，因此只有一个出口 IP 不一定代表轮询失败；请同时查看节点健康状态和 Mihomo 日志。
+
+## 策略怎么选
+
+| 策略 | 适合场景 | 行为 |
+| --- | --- | --- |
+| 手动选择 | 只想固定使用一个节点 | 始终使用指定节点 |
+| 主备切换 | 稳定性优先 | 主节点失败后按顺序切换 |
+| 延迟优选 | 速度优先 | 自动选择当前延迟较低的节点 |
+| 稳定哈希 | 希望相同目标尽量走相同节点 | 按目标稳定分配节点 |
+| 轮询均衡 | 希望新连接分散到多个节点 | 按连接轮换健康节点 |
+
+自动策略只使用通过健康检查的节点。节点不足、端口超出范围或订阅更新移除了节点时，服务会拒绝保存并说明原因。
+
+## 核心功能
+
+- 导入订阅 URL 或粘贴 Mihomo / Clash YAML。
+- 原生加密订阅存储，刷新失败时保留最后一个可用版本。
+- 创建 HTTP、SOCKS5 或 Mixed 本地端口池。
+- 健康检查、自动跳过故障节点和 Mihomo 热重载。
+- 端口 Listener 检测与多连接出口分布验证。
+- 会话、订阅和端口池持久化，容器重建后仍可恢复。
+- 可选迁移 Clash Verge 远程订阅。
+
+## 它如何工作
+
+```text
+本机应用
+   │ HTTP / SOCKS5
+   ▼
+127.0.0.1:17900 ──► Mihomo 策略组 ──► 健康节点 ──► 互联网
+                           ▲
+                           │ 本机 Controller API
+浏览器 ──► 127.0.0.1:4173 ─┘
+```
+
+Compose 默认发布 `17891-17893` 和 `17900-17999`。如果启动时报端口占用，请检查整个范围。
+
+## 常用命令
+
+```bash
+# 查看状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f --tail=100
+
+# 更新到最新代码
+git pull --ff-only
+docker compose up -d --build
+
+# 停止服务但保留数据
+docker compose down
+```
+
+不要随意运行 `docker compose down -v`，它会删除订阅、会话和端口池数据。
+
+### 忘记管理密码
+
+```bash
+npm run init -- --reset-password
+docker compose up -d --force-recreate proxy-port-manager
+```
+
+该命令只重置管理员凭据，不会更换订阅加密密钥。
+
+## 数据与安全
+
+- `.env` 包含本机密钥，已被 Git 忽略，请勿分享。
+- 订阅 URL、原始 YAML 和节点敏感字段使用 AES-256-GCM 加密后写入 SQLite。
+- 默认 Compose 只绑定 `127.0.0.1`；不要在没有额外认证和网络隔离时改成 `0.0.0.0`。
+- `proxy-session-data` 保存订阅、会话和端口池；`proxy-mihomo-data` 保存 Mihomo 运行配置。
+
+安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 从 Clash Verge 迁移
 
-新安装默认使用项目自己的订阅数据库，不依赖 Clash Verge。需要迁移现有 Clash Verge 远程订阅时，在 `.env` 中加入 Clash Verge 数据目录；下面的 `USERNAME` 必须替换为实际用户名：
+新安装不依赖 Clash Verge。如果需要导入 Clash Verge 的远程订阅，请阅读 [Docker 部署文档](DOCKER.md)。迁移完成后应切回默认的原生订阅模式。
 
-```text
-CATALOG_SOURCE=C:/Users/USERNAME/AppData/Roaming/io.github.clash-verge-rev.clash-verge-rev
-```
+## 常见问题
 
-Linux/macOS 的安装位置可能不同，请选择实际包含 `profiles.yaml` 和 `profiles/` 的 Clash Verge 配置目录。
+<details>
+<summary><strong>代理端口可以连接，但出口没有变化</strong></summary>
 
-然后使用迁移覆盖文件启动：
+轮询针对新连接。关闭连接复用，或使用多个独立 `curl` 进程测试；同时确认至少两个节点通过健康检查。
 
-```bash
-docker compose -f compose.yaml -f compose.legacy.yaml up -d --build
-```
+</details>
 
-在订阅页面核对订阅数量、节点数量及刷新状态。重复启动迁移模式不会重复导入已有数据库。确认迁移成功后，必须同时完成以下两步：
+<details>
+<summary><strong>端口没有监听</strong></summary>
 
-1. 确保 `.env` 中 `SUBSCRIPTION_MODE=native`，或删除该项以使用默认值。
-2. 停止使用 `compose.legacy.yaml`，只运行 `docker compose up -d`。
+运行 `docker compose ps` 和 `docker compose logs mihomo-core`。确认端口位于已发布范围，并且没有被其他程序占用。
 
-保留 Docker volumes。迁移覆盖文件会强制使用 `hybrid`，因此继续携带它启动就不会退出迁移模式。详细说明参见 [DOCKER.md](DOCKER.md)。
+</details>
 
-## 数据、安全与隐私
+<details>
+<summary><strong>初始化提示 .env 已存在</strong></summary>
 
-- `.env` 包含本机密钥且已被 Git 忽略，请勿提交或分享。
-- 订阅 URL、原始 YAML 和节点敏感字段使用 AES-256-GCM 加密后写入 SQLite。
-- 浏览器会话只保存随机令牌的 SHA-256 摘要。
-- 默认 Compose 仅绑定 `127.0.0.1`。不要在没有额外访问控制的情况下改为 `0.0.0.0`。
-- 本项目用于管理用户有权使用的代理订阅，不提供代理节点，也不授权绕过网络、服务或地区的使用政策。
+这是防止误覆盖密钥的保护。已有安装不需要重新初始化；如果只是忘记密码，请使用 `npm run init -- --reset-password`。
 
-持久化数据位于 Docker volumes：
+</details>
 
-- `proxy-session-data`：订阅数据库、登录会话和端口池状态。
-- `proxy-mihomo-data`：生成的 Mihomo 配置及核心运行数据。生成配置包含节点连接字段，应视为敏感明文数据保护。
+<details>
+<summary><strong>容器重建后数据会丢失吗？</strong></summary>
 
-`docker compose down` 不会删除这些数据；只有显式添加 `-v` 才会删除 volumes。
+不会。默认使用 Docker volumes 持久化。除非你显式删除 volumes，否则 `docker compose down` 和重新构建镜像不会删除数据。
 
-## 开发与验证
+</details>
+
+## 开发
 
 ```bash
 npm ci
@@ -176,42 +242,14 @@ npm run build
 npm run dev
 ```
 
-提交前还应检查：
-
-```bash
-docker compose config
-docker build -t proxy-port-manager:dev .
-```
-
-## 常见问题
-
-### 代理端口可以连接，但没有切换出口
-
-轮询针对“新连接”而不是同一连接里的多个请求。请关闭连接复用，或用多次独立 `curl` 进程验证；同时检查端口池中有多少节点通过健康检查。
-
-### 端口没有监听
-
-运行 `docker compose ps` 和 `docker compose logs mihomo-core`。确认端口位于 `17891-17893` 或 `17900-17999`，且没有被本机其他程序占用。
-
-### 忘记管理密码
-
-运行专用密码重置命令：
-
-```bash
-npm run init -- --reset-password
-docker compose up -d --force-recreate proxy-port-manager
-```
-
-该命令只更新管理员 Salt、Scrypt Hash 和会话版本，不会更换 Mihomo 控制器及订阅加密密钥；已有浏览器会话会失效，订阅和端口池保持可用。不要使用 `--force` 重置密码：它会覆盖整个 `.env`、轮换加密密钥和其他自定义设置，使现有加密订阅无法解密。执行任何恢复操作前，建议同时安全备份原 `.env` 和 Docker volumes，且不要运行 `docker compose down -v`。
-
-## 参与贡献
-
-请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告，不要提交包含订阅 URL、节点凭据、`.env` 或运行配置的公开 Issue。
+更多内容： [Docker 部署](DOCKER.md) · [变更记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md)
 
 ## 项目状态
 
-当前处于早期版本，定位为单机、本地使用的代理池。公开多用户代理、计费、分布式调度和公网部署不在当前范围内。
+当前是早期版本，专注单机、本地代理池。公网代理、多租户、计费和分布式调度不在当前范围内。
+
+如果这个项目对你有帮助，欢迎点一个 Star，让更多需要本地代理池的人看到它。
 
 ## 许可证
 
-本项目采用 [MIT License](LICENSE)。允许个人和商业使用、修改及分发，但需要保留原版权和许可证声明。
+[MIT License](LICENSE)
