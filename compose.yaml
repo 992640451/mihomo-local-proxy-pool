@@ -1,7 +1,7 @@
 services:
   proxy-port-manager:
     container_name: proxy-port-manager
-    image: proxy-port-manager:0.1.0
+    image: proxy-port-manager:0.1.1
     build:
       context: .
       dockerfile: Dockerfile
@@ -59,6 +59,20 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+          ignore:
+            - .artifacts/
+            - .docker-artifacts/
+            - .git/
+            - .local/
+            - dist/
+            - node_modules/
+            - tests/
+            - "*.md"
+            - "*.png"
 
   mihomo-core:
     container_name: proxy-port-manager-mihomo

@@ -87,7 +87,7 @@ The management service is ready when the response contains `status: ok`.
 2. Open **Proxy Ports** and select **Create Port Pool**.
 3. Use port `17900`, choose `Mixed`, and select at least one node.
 4. Save, then run **Check**. “Listener reachable” means the port is ready.
-5. Use the copy button beside the port and paste the proxy address into your application.
+5. Use the protocol icon beside the port and paste the proxy address into your application.
 
 For round-robin routing, select at least two nodes and choose **Round Robin**. Round robin applies to new connections; an established TCP connection does not move between nodes.
 
@@ -141,7 +141,7 @@ Automatic strategies only use nodes that pass health checks. The service rejects
 ## Core features
 
 - Import subscription URLs or paste Mihomo / Clash YAML.
-- Encrypted native subscription storage with last-known-good fallback.
+- Encrypted subscription storage with last-known-good fallback.
 - HTTP, SOCKS5, and Mixed local port pools.
 - Health checks, failed-node skipping, and Mihomo hot reload.
 - Listener checks and multi-connection exit-distribution verification.
@@ -173,13 +173,23 @@ docker compose logs -f --tail=100
 
 # Update
 git pull --ff-only
-docker compose up -d --build
+npm run docker:update
 
 # Stop while keeping data
 docker compose down
 ```
 
 Do not run `docker compose down -v` unless you intend to delete subscriptions, sessions, and port-pool data.
+
+After changing local code, run `npm run docker:update`. It rebuilds and force-recreates only the management service, then waits for a passing health check. The Mihomo container and persistent data are preserved.
+
+For an active development session, keep this running in a separate terminal:
+
+```bash
+npm run docker:watch
+```
+
+Compose watches application source, server code, dependencies, and container configuration, and rebuilds the management service after relevant changes. Press `Ctrl+C` to stop watching; the running containers remain available.
 
 ### Reset the administrator password
 

@@ -20,6 +20,14 @@ docker compose config
 docker build -t proxy-port-manager:dev .
 ```
 
+每次本地代码修改完成后，运行以下命令更新正在运行的管理服务容器并等待健康检查通过：
+
+```bash
+npm run docker:update
+```
+
+连续开发时可以改为在独立终端保持 `npm run docker:watch` 运行，由 Compose 在相关文件变化后自动重建容器。
+
 ## Pull Request
 
 - 一个 PR 只解决一个清晰问题。

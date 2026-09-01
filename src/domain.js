@@ -1,7 +1,7 @@
 export const DEFAULT_PORT_SPECS = [
-  { port: 17891, providerIncludes: 'iKuuu', nodeIncludes: '日本Y11' },
-  { port: 17892, providerIncludes: 'iKuuu', nodeIncludes: '美国Y02' },
-  { port: 17893, providerIncludes: '狗狗', nodeIncludes: '巴西' },
+  { port: 17891, nodeIndex: 0 },
+  { port: 17892, nodeIndex: 1 },
+  { port: 17893, nodeIndex: 2 },
 ]
 
 import { buildProxyGroup, DEFAULT_STRATEGY_OPTIONS, normalizePortConfig, PORT_STRATEGIES, portNodeIds } from '../shared/portConfig.js'
@@ -15,9 +15,7 @@ export function normalizePort(port = {}) {
 export function createInitialPorts(nodes, listeners = []) {
   if (listeners.length) return listeners.map(item => normalizePort(item))
   return DEFAULT_PORT_SPECS.map((spec, index) => {
-    const candidates = nodes.filter(node => node.provider.includes(spec.providerIncludes))
-    const node = candidates.find(item => item.name.includes(spec.nodeIncludes))
-      || candidates.find(item => spec.nodeIncludes.includes(item.country)) || candidates[0] || nodes[index]
+    const node = nodes[spec.nodeIndex] || nodes[index]
     return node ? normalizePort({ id: `port-${spec.port}`, port: spec.port, protocol: 'Mixed', nodeId: node.id, enabled: true, lastChecked: index ? `${index} 分钟前` : '刚刚' }) : null
   }).filter(Boolean)
 }
@@ -64,7 +62,7 @@ export function filterPorts(ports, filters, nodes = []) {
     if (filters.country !== '全部国家' && !selectedNodes.some(node => node.country === filters.country)) return false
     if (filters.status === '在线' && !port.enabled) return false
     if (filters.status === '已停用' && port.enabled) return false
-    const haystack = [port.port, port.protocol, port.routeName, port.listenerName, port.isGlobal ? 'Mihomo 核心 动态路由 全局入口' : '', PORT_STRATEGIES[port.strategy]?.label, ...selectedNodes.flatMap(node => [node.provider, node.country, node.name, node.code])]
+    const haystack = [port.port, port.protocol, port.routeName, port.listenerName, port.isGlobal ? '系统配置 动态路由 全局监听' : '', PORT_STRATEGIES[port.strategy]?.label, ...selectedNodes.flatMap(node => [node.provider, node.country, node.name, node.code])]
     return !query || haystack.join(' ').toLowerCase().includes(query)
   })
 }
@@ -72,7 +70,7 @@ export function filterPorts(ports, filters, nodes = []) {
 export function validatePortDraft(draft, ports, editingId = null) {
   const normalized = normalizePort(draft), port = Number(normalized.port), nodeIds = normalized.nodeIds
   if (!Number.isInteger(port) || port < 1024 || port > 65535) return '端口必须是 1024–65535 的整数'
-  if (!(port >= 17891 && port <= 17893) && !(port >= 17900 && port <= 17999)) return '内置核心端口范围为 17891–17893 或 17900–17999'
+  if (!(port >= 17891 && port <= 17893) && !(port >= 17900 && port <= 17999)) return '可用端口范围为 17891–17893 或 17900–17999'
   if (ports.some(item => item.id !== editingId && Number(item.port) === port)) return `端口 ${port} 已被占用`
   if (!nodeIds.length) return '请至少选择一个代理节点'
   if (!PORT_STRATEGIES[normalized.strategy]) return '请选择节点使用方式'

@@ -53,7 +53,7 @@ export function validatePortConfig(rawPort, { availableNodeIds, portAllowed } = 
   const port = normalizePortConfig(rawPort)
   const numericPort = Number(port.port)
   if (!integerInRange(numericPort, 1024, 65535)) throw new Error('端口必须是 1024–65535 的整数')
-  if (portAllowed && !portAllowed(numericPort)) throw new Error(`端口 ${numericPort} 不在内置核心已发布范围内`)
+  if (portAllowed && !portAllowed(numericPort)) throw new Error(`端口 ${numericPort} 不在可用端口范围内`)
   if (!LISTENER_TYPES[String(port.protocol || 'Mixed')]) throw new Error('仅支持 Mixed、HTTP、SOCKS5 协议')
   if (port.nodeIds.length < PORT_STRATEGIES[port.strategy].minNodes) throw new Error(`${PORT_STRATEGIES[port.strategy].label}至少需要 ${PORT_STRATEGIES[port.strategy].minNodes} 个节点`)
   if (port.nodeIds.length > 64) throw new Error('单个端口最多允许 64 个节点')

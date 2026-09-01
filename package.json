@@ -1,7 +1,7 @@
 {
   "name": "proxy-port-manager",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -12,12 +12,15 @@
     "start": "node server/index.mjs",
     "start:bridge": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-mihomo-bridge.ps1",
     "build": "vite build",
+    "docker:update": "node scripts/docker-update.mjs",
+    "docker:watch": "docker compose watch proxy-port-manager",
     "test": "node --test tests/*.test.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "express": "5.2.1",
     "undici": "^8.10.0",
     "yaml": "2.9.0"

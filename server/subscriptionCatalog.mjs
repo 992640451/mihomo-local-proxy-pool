@@ -29,7 +29,7 @@ export function buildNativeCatalog(subscriptions, definitions) {
   countries.forEach(country => { country.count = nodes.filter(node => node.code === country.code).length })
   countries.sort((a,b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-CN'))
   return {
-    source: 'Proxy Port Manager 原生订阅库', updatedAt: new Date().toISOString(),
+    source: 'Proxy Port Manager 订阅库', updatedAt: new Date().toISOString(),
     providers: subscriptions.filter(item => item.enabled).map(item => ({
       id: item.id, name: item.name, file: null, nodeCount: item.nodeCount,
       lastSuccessAt: item.lastSuccessAt, lastError: item.lastError,
@@ -101,7 +101,7 @@ function listenersFromDocument(doc, nodes) {
 
 async function loadMihomoCatalog(configPath) {
   const doc = YAML.parse(await readFile(configPath, 'utf8')) || {}
-  const provider = process.env.CATALOG_PROVIDER_NAME || '阿里云 Mihomo'
+  const provider = process.env.CATALOG_PROVIDER_NAME || 'Mihomo 本地配置'
   const nodes = (doc.proxies || []).filter(raw => raw?.name).map(raw => {
     const name = String(raw.name), geo = classifyCountry(name)
     const id = createHash('sha1').update(`mihomo:${name}`).digest('hex').slice(0, 16)

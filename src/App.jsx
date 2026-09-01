@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, GlobeSimple, Network } from "@phosphor-icons/react";
 import {
   PORT_STRATEGIES,
   dedupePortsByPort,
@@ -263,28 +264,9 @@ async function writeClipboardText(value) {
 
 function ProxyAddressCopy({ port, onNotice }) {
   const addresses = proxyAddressesForPort(port);
-  const isMixed = addresses.length > 1;
   const disabled = port.enabled === false;
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const rootRef = useRef(null);
+  const [copiedProtocol, setCopiedProtocol] = useState(null);
   const copiedTimerRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const closeOnPointerDown = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnPointerDown);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointerDown);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [open]);
 
   useEffect(
     () => () => window.clearTimeout(copiedTimerRef.current),
@@ -294,10 +276,12 @@ function ProxyAddressCopy({ port, onNotice }) {
   const copy = async (address) => {
     try {
       await writeClipboardText(address.url);
-      setOpen(false);
-      setCopied(true);
+      setCopiedProtocol(address.protocol);
       window.clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
+      copiedTimerRef.current = window.setTimeout(
+        () => setCopiedProtocol(null),
+        1500,
+      );
       const listenerWarning = ["offline", "error"].includes(
         port.listenerCheck?.state,
       );
@@ -306,7 +290,6 @@ function ProxyAddressCopy({ port, onNotice }) {
         text: `已复制 ${address.protocol} 代理：${address.url}${listenerWarning ? "（最近一次检测不可连接）" : ""}`,
       });
     } catch {
-      setOpen(false);
       onNotice({
         tone: "danger",
         text: `复制失败，请手动复制：${address.url}`,
@@ -314,45 +297,36 @@ function ProxyAddressCopy({ port, onNotice }) {
     }
   };
 
-  const buttonLabel = disabled
-    ? `端口 ${port.port} 已停用，无法复制代理地址`
-    : isMixed
-      ? `选择端口 ${port.port} 的代理协议并复制地址`
-      : `复制 ${addresses[0].protocol} 代理地址 ${addresses[0].url}`;
-
   return (
-    <div className="proxy-address-copy" ref={rootRef}>
+    <div className="proxy-address-copy">
       <strong className="mono">{port.port}</strong>
-      <button
-        type="button"
-        className={`proxy-copy-button${copied ? " copied" : ""}`}
-        disabled={disabled}
-        title={buttonLabel}
-        aria-label={buttonLabel}
-        aria-haspopup={isMixed ? "menu" : undefined}
-        aria-expanded={isMixed ? open : undefined}
-        onClick={() =>
-          isMixed ? setOpen((current) => !current) : copy(addresses[0])
-        }
-      >
-        <Icon name={copied ? "check" : "clipboard"} size={14} />
-      </button>
-      {open && (
-        <div className="proxy-copy-menu" role="menu" aria-label="选择代理协议">
-          <span>复制代理地址</span>
-          {addresses.map((address) => (
+      <span className="proxy-copy-actions">
+        {addresses.map((address) => {
+          const copied = copiedProtocol === address.protocol;
+          const AddressIcon = copied
+            ? Check
+            : address.protocol === "HTTP"
+              ? GlobeSimple
+              : Network;
+          const buttonLabel = disabled
+            ? `端口 ${port.port} 已停用，无法复制 ${address.protocol} 代理地址`
+            : `复制 ${address.protocol} 代理地址 ${address.url}`;
+          return (
             <button
               type="button"
-              role="menuitem"
               key={address.protocol}
+              className={`proxy-copy-button ${address.protocol.toLowerCase()}${copied ? " copied" : ""}`}
+              data-copy-protocol={address.protocol}
+              disabled={disabled}
+              title={buttonLabel}
+              aria-label={buttonLabel}
               onClick={() => copy(address)}
             >
-              <strong>{address.protocol}</strong>
-              <small className="mono">{address.url}</small>
+              <AddressIcon size={16} weight={copied ? "bold" : "regular"} />
             </button>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </span>
     </div>
   );
 }
@@ -910,7 +884,7 @@ function Overview({ catalog, runtime, ports }) {
       <PageHead
         eyebrow="LIVE CONFIGURATION"
         title="系统总览"
-        description="所有统计均来自当前订阅配置和本次服务进程。"
+        description="统计数据来自订阅库、端口配置和当前运行中的服务。"
       />
       <section className="metrics-grid">
         <MetricCard
@@ -918,7 +892,7 @@ function Overview({ catalog, runtime, ports }) {
           value={catalog.nodes.length}
           suffix="个"
           icon="nodes"
-          meta={`${catalog.providers.length} 个远程订阅`}
+          meta={`${catalog.providers.length} 个订阅来源`}
         />
         <MetricCard
           label="识别国家/地区"
@@ -1159,14 +1133,14 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                     checkedAt,
                   },
                   lastChecked: data.open
-                    ? `Listener 可连接 · ${data.latencyMs}ms`
-                    : "Listener 连接失败",
+                    ? `监听可连接 · ${data.latencyMs}ms`
+                    : "监听连接失败",
                 }
               : x,
           ),
         );
         addLog(
-          `检测端口 ${p.port}：${data.open ? "Listener 可连接" : "Listener 连接失败"}${detail}`,
+          `检测端口 ${p.port}：${data.open ? "监听可连接" : "监听连接失败"}${detail}`,
         );
       }
     } catch (error) {
@@ -1178,7 +1152,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
             ? {
                 ...x,
                 listenerCheck: { state: "error", latencyMs: null, checkedAt },
-                lastChecked: p.isGlobal ? "出口检测失败" : "Listener 检测异常",
+                lastChecked: p.isGlobal ? "出口检测失败" : "监听检测异常",
               }
             : x,
         ),
@@ -1222,7 +1196,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
         if (!response.ok)
           throw new Error(result.detail || result.error || "端口配置删除失败");
         if (!result.removed)
-          throw new Error("该端口不是可删除的 Listener 配置");
+          throw new Error("该端口不是可删除的监听配置");
         addLog(
           `删除端口 ${p.port}：${result.reloaded ? "Mihomo 已重载" : result.reloadRequired ? "等待核心重载" : "配置已移除"}`,
         );
@@ -1239,7 +1213,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
       <PageHead
         eyebrow="PORT POOLS"
         title="代理端口"
-        description="端口由本服务内置的独立 Mihomo 核心管理，可直接使用任意订阅节点，无需切换 Clash Verge 当前订阅。"
+        description="每个端口由独立的 Mihomo 监听和策略组提供服务，可使用已导入订阅中的节点，并按所选策略自动路由。"
       />
       {applyError && (
         <div className="toast danger">
@@ -1322,7 +1296,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                 <th>订阅</th>
                 <th>国家</th>
                 <th>节点池策略</th>
-                <th>Listener 检测</th>
+                <th>监听检测</th>
                 <th>配置状态</th>
                 <th>操作</th>
               </tr>
@@ -1341,10 +1315,10 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                     <td>{p.protocol}</td>
                     <td
                       title={
-                        p.isGlobal ? "Mihomo 核心" : providerNames.join("、")
+                        p.isGlobal ? "系统配置" : providerNames.join("、")
                       }
                     >
-                      {p.isGlobal ? "Mihomo 核心" : providerNames[0]}
+                      {p.isGlobal ? "系统配置" : providerNames[0]}
                       {!p.isGlobal && providerNames.length > 1
                         ? ` +${providerNames.length - 1}`
                         : ""}
@@ -1385,9 +1359,9 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                         className={`status-pill ${p.enabled ? "online" : "offline"}`}
                       >
                         {p.isGlobal
-                          ? "Mihomo 全局入口"
+                          ? "全局监听"
                           : p.managedBy === "embedded-mihomo"
-                            ? "内置核心监听"
+                            ? "受管监听"
                             : p.managedBy === "mihomo"
                               ? "Mihomo 监听"
                               : p.enabled
@@ -1485,7 +1459,7 @@ function NodesPage({ catalog }) {
       <PageHead
         eyebrow="SUBSCRIPTION NODES"
         title="节点目录"
-        description={`从原生订阅库读取 ${catalog.nodes.length} 个活动节点。`}
+        description={`从已启用的订阅中汇总 ${catalog.nodes.length} 个可用节点。`}
       />
       <section className="control-panel">
         <div className="toolbar">
@@ -1858,7 +1832,7 @@ function SubscriptionsPage({ catalog, refresh }) {
         <section className="data-card empty-state">尚未导入订阅</section>
       )}
       <section className="data-card">
-        <h2>原生订阅状态</h2>
+        <h2>订阅库状态</h2>
         <dl className="detail-list">
           <div>
             <dt>数据源</dt>
@@ -2040,14 +2014,14 @@ function SettingsPage({
       <PageHead
         eyebrow="SYSTEM SETTINGS"
         title="系统设置"
-        description="配置界面刷新和本地端口数据。"
+        description="管理界面刷新、运行状态读取和端口配置同步。"
       />
       <section className="data-card settings-card">
         <label className="setting-row">
           <span>
             <strong>界面数据自动刷新</strong>
             <small>
-              仅刷新管理界面；远程订阅周期在订阅页分别设置并由服务端执行
+              仅刷新管理界面；订阅的服务端刷新周期在订阅页单独设置
             </small>
           </span>
           <Select
@@ -2063,7 +2037,7 @@ function SettingsPage({
         <div className="setting-row">
           <span>
             <strong>立即刷新界面</strong>
-            <small>重新读取原生订阅库与内置 Mihomo 运行状态</small>
+            <small>重新读取订阅、端口配置与 Mihomo 运行状态</small>
           </span>
           <button className="button primary" onClick={refresh}>
             读取状态
@@ -2071,11 +2045,11 @@ function SettingsPage({
         </div>
         <div className="setting-row">
           <span>
-            <strong>重置端口配置</strong>
-            <small>按当前订阅节点恢复默认端口映射</small>
+            <strong>重新同步端口配置</strong>
+            <small>丢弃当前界面状态并重新读取服务端端口配置</small>
           </span>
           <button className="button danger" onClick={resetPorts}>
-            恢复默认
+            重新同步
           </button>
         </div>
       </section>
@@ -2170,7 +2144,7 @@ export default function App() {
   const setRefreshSeconds = (v) => {
     setRefreshSecondsState(v);
     localStorage.setItem("ppm:refreshSeconds", String(v));
-    addLog(`订阅自动刷新设置为 ${v ? `${v} 秒` : "关闭"}`);
+    addLog(`界面自动刷新设置为 ${v ? `${v} 秒` : "关闭"}`);
   };
   const logout = async () => {
     try {
@@ -2201,7 +2175,7 @@ export default function App() {
           <i />
           <i />
         </span>
-        <strong>正在读取订阅配置…</strong>
+        <strong>正在读取服务状态…</strong>
       </div>
     );
   if (error && !catalog)
@@ -2243,7 +2217,7 @@ export default function App() {
         refresh={refresh}
         resetPorts={() => {
           setPorts(dedupePortsByPort(catalog.listeners || []));
-          addLog("恢复服务端端口配置");
+          addLog("重新同步服务端端口配置");
         }}
       />
     ),

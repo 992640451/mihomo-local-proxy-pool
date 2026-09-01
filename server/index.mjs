@@ -154,16 +154,16 @@ app.get('/api/subscriptions/catalog', async (_req, res) => {
   catch (error) { res.status(500).json({ error: '订阅配置读取失败', detail: error.message }) }
 })
 app.get('/api/subscriptions', (_req, res) => {
-  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  if (!subscriptionService) return res.status(501).json({ error: '订阅管理功能未启用' })
   res.set('Cache-Control', 'no-store').json({ mode: subscriptionMode, subscriptions: subscriptionService.list() })
 })
 app.post('/api/subscriptions/preview', async (req, res) => {
-  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  if (!subscriptionService) return res.status(501).json({ error: '订阅管理功能未启用' })
   try { res.set('Cache-Control', 'no-store').json(await subscriptionService.preview({ url: req.body?.url, content: req.body?.content })) }
   catch (error) { res.status(400).json({ error: '订阅预览失败', detail: error.message }) }
 })
 app.post('/api/subscriptions', async (req, res) => {
-  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  if (!subscriptionService) return res.status(501).json({ error: '订阅管理功能未启用' })
   try {
     const result = await subscriptionService.create(req.body || {})
     await syncCoreAfterSubscriptionChange()
@@ -171,7 +171,7 @@ app.post('/api/subscriptions', async (req, res) => {
   } catch (error) { res.status(400).json({ error: '订阅导入失败', detail: error.message }) }
 })
 app.patch('/api/subscriptions/:id', async (req, res) => {
-  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  if (!subscriptionService) return res.status(501).json({ error: '订阅管理功能未启用' })
   try {
     const result = await subscriptionService.update(req.params.id, req.body || {})
     await syncCoreAfterSubscriptionChange()
@@ -179,7 +179,7 @@ app.patch('/api/subscriptions/:id', async (req, res) => {
   } catch (error) { res.status(400).json({ error: '订阅更新失败', detail: error.message }) }
 })
 app.post('/api/subscriptions/:id/refresh', async (req, res) => {
-  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  if (!subscriptionService) return res.status(501).json({ error: '订阅管理功能未启用' })
   try {
     const result = await subscriptionService.refresh(req.params.id)
     await syncCoreAfterSubscriptionChange()
@@ -187,7 +187,7 @@ app.post('/api/subscriptions/:id/refresh', async (req, res) => {
   } catch (error) { res.status(400).json({ error: '订阅刷新失败', detail: error.message }) }
 })
 app.post('/api/subscriptions/refresh-all', async (_req, res) => {
-  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  if (!subscriptionService) return res.status(501).json({ error: '订阅管理功能未启用' })
   try {
     const results = await subscriptionService.refreshAll()
     await syncCoreAfterSubscriptionChange()
@@ -195,7 +195,7 @@ app.post('/api/subscriptions/refresh-all', async (_req, res) => {
   } catch (error) { res.status(400).json({ error: '订阅批量刷新失败', detail: error.message }) }
 })
 app.delete('/api/subscriptions/:id', async (req, res) => {
-  if (!subscriptionService) return res.status(501).json({ error: '原生订阅模式未启用' })
+  if (!subscriptionService) return res.status(501).json({ error: '订阅管理功能未启用' })
   try {
     const nodeIds = new Set(subscriptionService.nodeIds(req.params.id))
     const catalog = await loadLiveCatalog()

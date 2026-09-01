@@ -176,7 +176,7 @@ async function reloadCore(options) {
     headers: { 'Content-Type': 'application/json', ...(options.controllerSecret ? { Authorization: `Bearer ${options.controllerSecret}` } : {}) },
     body: JSON.stringify({ path: options.controllerConfigPath }),
   })
-  if (!response.ok) throw new Error(`内置 Mihomo 重载失败：HTTP ${response.status} ${await response.text()}`)
+  if (!response.ok) throw new Error(`Mihomo 核心重载失败：HTTP ${response.status} ${await response.text()}`)
   return { reloaded: true, reloadRequired: false }
 }
 
@@ -230,7 +230,7 @@ export async function embeddedListeners(source, rawOptions = {}) {
       strategyOptions: item.strategyOptions,
       enabled: item.enabled !== false,
       managedBy: 'embedded-mihomo',
-      lastChecked: item.enabled === false ? '配置已停用' : missing ? `节点已不存在：${missing}` : `内置核心监听 · 首选 ${selected[0]?.raw?.name || '未知'}`,
+      lastChecked: item.enabled === false ? '配置已停用' : missing ? `节点已不存在：${missing}` : `受管监听 · 首选 ${selected[0]?.raw?.name || '未知'}`,
     }
   })
 }

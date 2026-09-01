@@ -138,8 +138,8 @@ async function applyMihomoPortMutation({ source, port, nodeId, nodeIds, strategy
     const reload = await reloadMihomo(paths.runtimeConfigPath)
     const verified = YAML.parse(await readFile(paths.runtimeConfigPath, 'utf8')) || {}
     const listener = (verified.listeners || []).find(value => Number(value.port) === numericPort)
-    if (normalized.enabled && listener?.proxy !== proxyGroup.name) throw new Error('写入后校验失败：Listener 策略组不一致')
-    if (!normalized.enabled && listener) throw new Error('写入后校验失败：Listener 仍存在')
+    if (normalized.enabled && listener?.proxy !== proxyGroup.name) throw new Error('写入后校验失败：监听策略组不一致')
+    if (!normalized.enabled && listener) throw new Error('写入后校验失败：监听仍存在')
     return { ...normalized, proxy: node.name, routeName: `${PORT_STRATEGIES[normalized.strategy].label} · ${normalized.nodeIds.length} 节点`, listener, proxyGroup, ...reload }
   } catch (error) {
     await atomicWrite(paths.runtimeConfigPath, runtimeOriginal).catch(() => {})
@@ -176,7 +176,7 @@ async function deleteMihomoPortMutation({ source, port }) {
     if (listenerRemoved || groupRemoved) await atomicWrite(paths.runtimeConfigPath, runtimeNext)
     const reload = changed ? await reloadMihomo(paths.runtimeConfigPath) : { reloaded: false, reloadRequired: false }
     const verified = YAML.parse(await readFile(paths.runtimeConfigPath, 'utf8')) || {}
-    if ((verified.listeners || []).some(value => Number(value?.port) === numericPort)) throw new Error('删除后校验失败：Listener 仍存在')
+    if ((verified.listeners || []).some(value => Number(value?.port) === numericPort)) throw new Error('删除后校验失败：监听仍存在')
     if ((verified['proxy-groups'] || []).some(value => value?.name === groupName)) throw new Error('删除后校验失败：策略组仍存在')
     return { port: numericPort, removed: changed, listenerRemoved, groupRemoved, overrideRemoved, ...reload }
   } catch (error) {
