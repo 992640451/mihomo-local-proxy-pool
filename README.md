@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/992640451/proxy-port-manager/actions/workflows/ci.yml"><img src="https://github.com/992640451/proxy-port-manager/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/992640451/mihomo-local-proxy-pool/actions/workflows/ci.yml"><img src="https://github.com/992640451/mihomo-local-proxy-pool/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22d3ee.svg" alt="MIT License" /></a>
   <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.0-f59e0b.svg" alt="Version 0.1.0" /></a>
   <img src="https://img.shields.io/badge/Node.js-%E2%89%A522-f59e0b.svg" alt="Node.js 22 or newer" />
@@ -67,8 +67,8 @@ docker compose version
 ```
 
 ```bash
-git clone https://github.com/992640451/proxy-port-manager.git
-cd proxy-port-manager
+git clone https://github.com/992640451/mihomo-local-proxy-pool.git
+cd mihomo-local-proxy-pool
 npm run init
 docker compose config
 docker compose build --pull
