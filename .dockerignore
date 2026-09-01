@@ -1,0 +1,9 @@
+node_modules
+dist
+.artifacts
+.docker-artifacts
+.local
+.env
+.git
+*.log
+20260819-005152

@@ -1,0 +1,91 @@
+services:
+  proxy-port-manager:
+    container_name: proxy-port-manager
+    image: proxy-port-manager:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
+    ports:
+      - "127.0.0.1:4173:4180"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      APP_HOST: 0.0.0.0
+      PORT: 4180
+      PROBE_HOST: mihomo-core
+      MIHOMO_CONFIG_PATH: /catalog
+      EMBEDDED_CORE_ENABLED: "true"
+      EMBEDDED_CORE_STATE_PATH: /data/embedded-core.json
+      EMBEDDED_CORE_CONFIG_PATH: /mihomo/config.yaml
+      EMBEDDED_CORE_HOST_CONFIG_PATH: /home/mihomo/config.yaml
+      EMBEDDED_CORE_CONTROLLER_URL: http://mihomo-core:9090
+      EMBEDDED_CORE_SECRET: ${MIHOMO_CONTROLLER_SECRET}
+      EMBEDDED_CORE_PORT_RANGES: 17891-17893,17900-17999
+      AUTH_SESSION_DB: /data/sessions.sqlite
+    volumes:
+      - type: bind
+        source: ${CATALOG_SOURCE}
+        target: /catalog
+        read_only: false
+      - type: volume
+        source: proxy-session-data
+        target: /data
+      - type: volume
+        source: proxy-mihomo-data
+        target: /mihomo
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4180/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  mihomo-core:
+    container_name: proxy-port-manager-mihomo
+    image: docker.io/metacubex/mihomo:v1.19.28
+    command: ["-d", "/home/mihomo"]
+    user: "1000:1000"
+    depends_on:
+      proxy-port-manager:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:17891-17893:17891-17893/tcp"
+      - "127.0.0.1:17891-17893:17891-17893/udp"
+      - "127.0.0.1:17900-17999:17900-17999/tcp"
+      - "127.0.0.1:17900-17999:17900-17999/udp"
+    volumes:
+      - type: volume
+        source: proxy-mihomo-data
+        target: /home/mihomo
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  proxy-session-data:
+  proxy-mihomo-data:

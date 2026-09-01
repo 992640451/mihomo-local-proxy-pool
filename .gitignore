@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.local/
+*.log
+.artifacts/
+.docker-artifacts/
+$artifact/
+.git-transaction/
+20260819-005152
