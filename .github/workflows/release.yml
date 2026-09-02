@@ -63,6 +63,9 @@ jobs:
       - name: Build web application
         working-directory: source
         run: npm run build
+      - name: Prepare example environment
+        working-directory: source
+        run: cp .env.example .env
       - name: Validate Compose configuration
         working-directory: source
         run: docker compose --env-file .env.example config
