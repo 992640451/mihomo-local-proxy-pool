@@ -3,6 +3,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { fetchMihomo } from './fetch-mihomo.mjs'
+import { buildMetadata, capture, executableComponent, extendSbom, writeJson } from './build-metadata.mjs'
 
 const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -36,12 +37,14 @@ async function main() {
   const packageJson = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'))
   const outputRoot = path.resolve(argument('--output') || path.join(projectRoot, '.artifacts', 'portable'))
   let coreSource = argument('--core') || process.env.PPM_MIHOMO_BINARY || ''
+  let coreDownload = null
   if (!coreSource) {
     const fetched = await fetchMihomo({
       output: path.join(outputRoot, '.core-cache', process.platform === 'win32' ? 'mihomo.exe' : 'mihomo'),
       manifestFile: path.join(projectRoot, 'release', 'core-manifest.json'),
     })
     coreSource = fetched.outputFile
+    coreDownload = fetched
   }
   coreSource = path.resolve(coreSource)
   if (!await isFile(coreSource)) throw new Error(`Mihomo 核心不存在：${coreSource}`)
@@ -80,6 +83,25 @@ async function main() {
   const npmCli = process.env.npm_execpath || (await isFile(bundledNpmCli) ? bundledNpmCli : null)
   if (!npmCli) throw new Error('找不到 npm CLI；请从 npm 脚本运行 portable:build')
   run(process.execPath, [npmCli, 'ci', '--omit=dev', '--ignore-scripts'], { cwd: path.join(stage, 'app') })
+  const metadata = await buildMetadata(projectRoot)
+  const coreVersion = capture(coreSource, ['-v'])
+  const versionMatch = /Mihomo\s+(?:Meta\s+)?v?([\d.]+)/i.exec(coreVersion)
+  if (!versionMatch) throw new Error('无法识别 Mihomo 版本')
+  if (coreDownload && coreDownload.version !== versionMatch[1]) throw new Error('Mihomo 实际版本与下载清单不一致')
+  metadata.mihomoVersion = versionMatch[1]
+  metadata.coreArchiveSha256 = coreDownload?.sha256 || null
+  metadata.coreVerified = Boolean(coreDownload)
+  await writeJson(path.join(stage, 'app', 'build-info.json'), metadata)
+  // Include frontend dependencies and build tools as well as server dependencies.
+  // Reading the installed graph avoids listing optional binaries for other platforms.
+  const npmBom = JSON.parse(capture(process.execPath, [npmCli, 'sbom', '--sbom-format=cyclonedx'], { cwd: projectRoot }))
+  const natives = await Promise.all([
+    executableComponent('node', process.versions.node, path.join(stage, 'runtime', nodeName), `https://github.com/nodejs/node/tree/${process.version}`),
+    executableComponent('mihomo', metadata.mihomoVersion, path.join(stage, 'core', coreName), `https://github.com/MetaCubeX/mihomo/tree/v${metadata.mihomoVersion}`),
+  ])
+  await writeJson(path.join(stage, 'sbom.cdx.json'), extendSbom(npmBom, metadata, natives))
+  await writeJson(`${archive}.build.json`, metadata)
+  await cp(path.join(stage, 'sbom.cdx.json'), `${archive}.cdx.json`)
   if (process.platform === 'win32') run('tar.exe', ['-a', '-cf', archive, '-C', outputRoot, name])
   else run('tar', ['-czf', archive, '-C', outputRoot, name])
   console.log(`便携包已生成：${archive}`)

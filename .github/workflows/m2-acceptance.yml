@@ -1,0 +1,215 @@
+name: M2 Acceptance
+
+on:
+  push:
+    branches: [codex/m2-acceptance]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m2-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_NODE_VERSION: 26.8.1
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      matrix: ${{ steps.metadata.outputs.matrix }}
+      count: ${{ steps.metadata.outputs.count }}
+      revision: ${{ steps.metadata.outputs.revision }}
+      built-at: ${{ steps.metadata.outputs.built-at }}
+      image: ${{ steps.image.outputs.name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Validate version and source commit without creating a tag
+        id: metadata
+        run: node scripts/validate-release.mjs --tag "v$(node -p 'require("./package.json").version')"
+      - name: Use an isolated registry package and unique run tag
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}/m2-acceptance" >> "$GITHUB_OUTPUT"
+      - run: cp .env.example .env && docker compose --env-file .env.example config --quiet
+
+  portable:
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    env:
+      PPM_BUILD_REVISION: ${{ needs.validate.outputs.revision }}
+      PPM_BUILD_TIME: ${{ needs.validate.outputs.built-at }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          cache: npm
+      - run: npm ci
+      - run: npm run portable:build
+      - name: Test extracted package with its bundled runtimes
+        id: asset
+        run: node scripts/prepare-release-asset.mjs --source-root . --output acceptance-assets --version "${{ needs.validate.outputs.version }}" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" --require-verified-core
+      - name: Attest provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.asset.outputs.asset }}
+      - name: Attest SBOM binding
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.asset.outputs.asset }}
+          sbom-path: ${{ steps.asset.outputs.sbom }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: m2-portable-${{ matrix.platform }}-${{ matrix.arch }}
+          path: acceptance-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  registry:
+    needs: [validate, portable]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    env:
+      IMAGE: ${{ needs.validate.outputs.image }}
+      IMAGE_TAG: run-${{ github.run_id }}-${{ github.run_attempt }}
+      REVISION: ${{ needs.validate.outputs.revision }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build isolated acceptance image (never a version or latest tag)
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+          build-args: |
+            PPM_BUILD_VERSION=${{ needs.validate.outputs.version }}
+            PPM_BUILD_REVISION=${{ env.REVISION }}
+            PPM_BUILD_TIME=${{ needs.validate.outputs.built-at }}
+          sbom: true
+          provenance: mode=max
+      - uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Pull and smoke-test the published digest on both architectures
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          for arch in amd64 arm64; do
+            docker pull --platform "linux/$arch" "$IMAGE@$DIGEST"
+            node scripts/smoke-container.mjs --image "$IMAGE@$DIGEST" --platform "linux/$arch" --version "$VERSION" --revision "$REVISION"
+          done
+      - name: Verify registry provenance and embedded BuildKit attestations
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          gh attestation verify "oci://$IMAGE@$DIGEST" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/m2-acceptance.yml" --source-digest "$REVISION" --bundle-from-oci
+          node scripts/verify-image-attestations.mjs --image "$IMAGE@$DIGEST" --output .artifacts/registry-verification.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: m2-registry-verification
+          path: .artifacts/registry-verification.json
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    needs: [validate, portable, registry]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REVISION: ${{ needs.validate.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: m2-portable-*
+          path: acceptance-assets
+          merge-multiple: true
+      - name: Verify checksums, every provenance signature and every SBOM binding
+        run: |
+          node scripts/create-checksums.mjs --directory acceptance-assets --expected "${{ needs.validate.outputs.count }}"
+          (cd acceptance-assets && sha256sum -c SHA256SUMS.txt)
+          for asset in acceptance-assets/*.zip acceptance-assets/*.tar.gz; do
+            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/m2-acceptance.yml" --source-digest "$REVISION"
+            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/m2-acceptance.yml" --source-digest "$REVISION" --predicate-type https://cyclonedx.org/bom
+          done
+      - name: Write acceptance evidence
+        env:
+          ACCEPTANCE_IMAGE: ${{ needs.validate.outputs.image }}@${{ needs.registry.outputs.digest }}
+        run: node scripts/acceptance-report.mjs --directory acceptance-assets
+      - uses: actions/upload-artifact@v7
+        with:
+          name: m2-acceptance-evidence
+          path: |
+            acceptance-assets/SHA256SUMS.txt
+            acceptance-assets/acceptance-report.json
+          if-no-files-found: error
+          retention-days: 30

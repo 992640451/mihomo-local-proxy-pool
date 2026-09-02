@@ -8,6 +8,12 @@ import { gunzipSync } from 'node:zlib'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+export function verifyMihomoArchive(archive, expected) {
+  const digest = createHash('sha256').update(archive).digest('hex')
+  if (!/^[a-f0-9]{64}$/.test(expected || '') || digest !== expected) throw new Error(`Mihomo SHA256 校验失败：期望 ${expected}，实际 ${digest}`)
+  return digest
+}
+
 export function isMihomoExecutable(filename, platform = process.platform) {
   return platform === 'win32' ? /^mihomo(?:-.*)?\.exe$/i.test(filename) : /^mihomo(?:-.*)?$/i.test(filename)
 }
@@ -41,11 +47,10 @@ export async function fetchMihomo({
   const outputFile = path.resolve(output || path.join(projectRoot, '.artifacts', 'core', platform === 'win32' ? 'mihomo.exe' : 'mihomo'))
   const url = `https://github.com/MetaCubeX/mihomo/releases/download/v${manifest.version}/${target.archive}`
   console.log(`下载 Mihomo v${manifest.version}：${target.archive}`)
-  const response = await fetch(url, { headers: { 'User-Agent': 'Proxy-Port-Manager-Build' } })
+  const response = await fetch(url, { headers: { 'User-Agent': 'Proxy-Port-Manager-Build' }, signal: AbortSignal.timeout(120000) })
   if (!response.ok) throw new Error(`下载 Mihomo 失败：HTTP ${response.status}`)
   const archive = Buffer.from(await response.arrayBuffer())
-  const digest = createHash('sha256').update(archive).digest('hex')
-  if (digest !== target.sha256) throw new Error(`Mihomo SHA256 校验失败：期望 ${target.sha256}，实际 ${digest}`)
+  const digest = verifyMihomoArchive(archive, target.sha256)
   await mkdir(path.dirname(outputFile), { recursive: true })
   if (target.archive.endsWith('.gz')) {
     await writeFile(outputFile, gunzipSync(archive), { mode: 0o755 })

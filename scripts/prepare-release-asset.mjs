@@ -2,6 +2,7 @@ import { access, appendFile, copyFile, mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { argument, parseReleaseTag } from './release-utils.mjs'
+import { smokePortable } from './smoke-portable.mjs'
 
 async function exists(filename) {
   try { await access(filename); return true } catch { return false }
@@ -41,12 +42,28 @@ async function main() {
   const coreVersion = run(coreExecutable, ['-v'], stageRoot)
   const help = run(nodeExecutable, [path.join(stageRoot, 'app', 'scripts', 'launcher.mjs'), '--help'], stageRoot)
   if (!help.includes('ppm start')) throw new Error('便携启动器冒烟测试失败')
+  const metadata = JSON.parse(await readFile(`${archiveFile}.build.json`, 'utf8'))
+  const sbom = JSON.parse(await readFile(`${archiveFile}.cdx.json`, 'utf8'))
+  if (sbom.bomFormat !== 'CycloneDX') throw new Error('缺少有效的 CycloneDX SBOM')
+  for (const component of ['node', 'mihomo', 'react', 'react-dom', 'express']) {
+    if (!sbom.components?.some(item => item.name === component)) throw new Error(`SBOM 缺少 ${component}`)
+  }
+  if (metadata.version !== version || metadata.target !== `${({ windows: 'win32', macos: 'darwin', linux: 'linux' })[platform]}-${arch}`) throw new Error('构建元数据与目标不一致')
+  if (process.argv.includes('--require-verified-core') && !metadata.coreVerified) throw new Error('公开发布必须使用清单校验的 Mihomo')
+  await smokePortable(archiveFile, {
+    expectedVersion: version,
+    expectedRevision: metadata.revision,
+    expectedMetadata: metadata,
+    expectedSbom: sbom,
+    requireMetadata: await exists(path.join(sourceRoot, 'server', 'runtime', 'buildInfo.mjs')),
+  })
 
   await mkdir(output, { recursive: true })
   const destination = path.join(output, `${versionedName}.${extension}`)
   await copyFile(archiveFile, destination)
+  for (const suffix of ['.cdx.json', '.build.json']) await copyFile(`${archiveFile}${suffix}`, `${destination}${suffix}`)
   const githubOutput = argument(process.argv, '--github-output', process.env.GITHUB_OUTPUT)
-  if (githubOutput) await appendFile(githubOutput, `asset=${destination.replaceAll('\\', '/')}\n`)
+  if (githubOutput) await appendFile(githubOutput, `asset=${destination.replaceAll('\\', '/')}\nsbom=${destination.replaceAll('\\', '/')}.cdx.json\nmetadata=${destination.replaceAll('\\', '/')}.build.json\n`)
   console.log(`便携包验证通过：${path.basename(destination)}；${nodeVersion}；${coreVersion}`)
 }
 

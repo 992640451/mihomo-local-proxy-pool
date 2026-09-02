@@ -2,16 +2,15 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 已存在的 Git 标签，例如 v1.0.0
+        description: 已存在的 Git 标签，例如 v1.1.0
         required: true
         type: string
       publish:
-        description: 验证通过后立即发布；关闭时仅创建 Draft
+        description: 发布 Release 和 GHCR；关闭时仅创建 Draft，不推送镜像
         required: true
         default: false
         type: boolean
@@ -30,136 +29,217 @@ env:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     outputs:
       version: ${{ steps.metadata.outputs.version }}
       prerelease: ${{ steps.metadata.outputs.prerelease }}
+      matrix: ${{ steps.metadata.outputs.matrix }}
+      count: ${{ steps.metadata.outputs.count }}
+      revision: ${{ steps.metadata.outputs.revision }}
+      built-at: ${{ steps.metadata.outputs.built-at }}
+      image: ${{ steps.image.outputs.name }}
     steps:
-      - name: Checkout release tooling
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TOOLING_REF }}
           path: tooling
-      - name: Checkout release source
-        uses: actions/checkout@v7
+          persist-credentials: false
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
           path: source
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: source/package-lock.json
-      - name: Validate release metadata
-        id: metadata
-        run: node tooling/scripts/validate-release.mjs --root source --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
-      - name: Install dependencies
-        working-directory: source
-        run: npm ci
-      - name: Test
-        working-directory: source
-        run: npm test
-      - name: Build web application
-        working-directory: source
-        run: npm run build
-      - name: Prepare example environment
-        working-directory: source
-        run: cp .env.example .env
-      - name: Validate Compose configuration
-        working-directory: source
-        run: docker compose --env-file .env.example config
-      - name: Build container image
-        working-directory: source
-        run: docker build -t proxy-port-manager:release-validation .
-
-  build-portable:
-    needs: validate
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-latest
-            platform: windows
-            arch: x64
-          - runner: ubuntu-latest
-            platform: linux
-            arch: x64
-          - runner: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-          - runner: macos-15-intel
-            platform: macos
-            arch: x64
-          - runner: macos-15
-            platform: macos
-            arch: arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
-    steps:
-      - name: Checkout release tooling
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ env.TOOLING_REF }}
-          path: tooling
-      - name: Checkout release source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-          path: source
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.RELEASE_NODE_VERSION }}
           cache: npm
           cache-dependency-path: source/package-lock.json
-      - name: Install dependencies
+      - name: Validate release metadata and target matrix
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tooling/scripts/validate-release.mjs --root source --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT" --check-remote
+      - name: Resolve lowercase image name
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Install, test and build
         working-directory: source
-        run: npm ci
-      - name: Build portable archive
         run: |
+          npm ci
+          npm test
+          npm run build
+          cp .env.example .env
+          docker compose --env-file .env.example config --quiet
+
+  build-portable:
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      PPM_BUILD_REVISION: ${{ needs.validate.outputs.revision }}
+      PPM_BUILD_TIME: ${{ needs.validate.outputs.built-at }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.revision }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+          architecture: ${{ matrix.arch }}
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Build archive and CycloneDX SBOM
+        run: |
+          npm --prefix source ci
           npm --prefix source run build
           npm --prefix tooling run portable:package -- --root ../source
-      - name: Verify and normalize release asset
+      - name: Extract final archive, first start, login, core health, stop and restart
         id: asset
-        run: node tooling/scripts/prepare-release-asset.mjs --source-root source --output release-assets --version "${{ needs.validate.outputs.version }}" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}"
-      - name: Upload portable archive
-        uses: actions/upload-artifact@v7
+        run: node tooling/scripts/prepare-release-asset.mjs --source-root source --output release-assets --version "${{ needs.validate.outputs.version }}" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}" --require-verified-core
+      - name: Attest archive provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.asset.outputs.asset }}
+      - name: Bind SBOM to archive digest
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.asset.outputs.asset }}
+          sbom-path: ${{ steps.asset.outputs.sbom }}
+      - uses: actions/upload-artifact@v7
         with:
           name: portable-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ steps.asset.outputs.asset }}
+          path: |
+            ${{ steps.asset.outputs.asset }}
+            ${{ steps.asset.outputs.sbom }}
+            ${{ steps.asset.outputs.metadata }}
           if-no-files-found: error
           retention-days: 7
 
-  release:
+  container:
     needs: [validate, build-portable]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    env:
+      IMAGE: ${{ needs.validate.outputs.image }}
+      VERSION: ${{ needs.validate.outputs.version }}
+      REVISION: ${{ needs.validate.outputs.revision }}
+      BUILT_AT: ${{ needs.validate.outputs.built-at }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.revision }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Smoke test both Linux architectures before any push
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            docker buildx build --platform "linux/$arch" --load --tag "ppm-smoke:$arch" --build-arg "PPM_BUILD_VERSION=$VERSION" --build-arg "PPM_BUILD_REVISION=$REVISION" --build-arg "PPM_BUILD_TIME=$BUILT_AT" source
+            node tooling/scripts/smoke-container.mjs --image "ppm-smoke:$arch" --version "$VERSION" --revision "$REVISION"
+          done
+      - uses: docker/login-action@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse overwriting existing version and revision tags
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        run: node tooling/scripts/assert-image-unpublished.mjs "$IMAGE:$RELEASE_TAG" "$IMAGE:sha-$REVISION"
+      - name: Build multi-architecture image with SBOM and provenance
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: source
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.RELEASE_TAG }}
+            ${{ env.IMAGE }}:sha-${{ env.REVISION }}
+          build-args: |
+            PPM_BUILD_VERSION=${{ env.VERSION }}
+            PPM_BUILD_REVISION=${{ env.REVISION }}
+            PPM_BUILD_TIME=${{ env.BUILT_AT }}
+          provenance: mode=max
+          sbom: true
+      - name: Attest registry image
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  release:
+    needs: [validate, build-portable, container]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
-      - name: Checkout release tooling
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TOOLING_REF }}
           path: tooling
-      - name: Checkout release source
-        uses: actions/checkout@v7
+          persist-credentials: false
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ needs.validate.outputs.revision }}
           path: source
-      - name: Download portable archives
-        uses: actions/download-artifact@v8
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+      - uses: actions/download-artifact@v8
         with:
           pattern: portable-*
           path: release-assets
           merge-multiple: true
-      - name: Create checksums
-        run: node tooling/scripts/create-checksums.mjs --directory release-assets --output release-assets/SHA256SUMS.txt --expected 5
+      - name: Create checksums (archives, SBOMs and build metadata)
+        run: node tooling/scripts/create-checksums.mjs --directory release-assets --output release-assets/SHA256SUMS.txt --expected "${{ needs.validate.outputs.count }}"
       - name: Generate release notes
+        env:
+          RELEASE_IMAGE: ${{ needs.validate.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) && needs.container.outputs.digest || '' }}
         run: node tooling/scripts/extract-release-notes.mjs --root source --tag "$RELEASE_TAG" --output release-notes.md
-      - name: Attest release assets
+      - name: Attest checksums and metadata
         uses: actions/attest@v4
         with:
           subject-path: release-assets/*
@@ -168,7 +248,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
-          PUBLISH_RELEASE: ${{ github.event_name == 'push' || inputs.publish }}
+          PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
         shell: bash
         run: |
           set -euo pipefail
@@ -177,7 +257,7 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
             if [[ "$is_draft" != "true" ]]; then
-              echo "Release $RELEASE_TAG 已经发布，拒绝覆盖公开制品。" >&2
+              echo "Release $RELEASE_TAG 已发布，拒绝覆盖公开制品。" >&2
               exit 1
             fi
             gh release upload "$RELEASE_TAG" release-assets/* --clobber
@@ -186,7 +266,5 @@ jobs:
             gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft "${flags[@]}"
           fi
           if [[ "$PUBLISH_RELEASE" == "true" ]]; then
-            publish_flags=(--draft=false)
-            if [[ "$PRERELEASE" != "true" ]]; then publish_flags+=(--latest); fi
-            gh release edit "$RELEASE_TAG" "${publish_flags[@]}"
+            gh release edit "$RELEASE_TAG" --draft=false
           fi

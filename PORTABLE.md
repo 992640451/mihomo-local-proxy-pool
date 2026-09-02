@@ -64,3 +64,14 @@ Use `--core /path/to/mihomo` to build with an explicitly supplied core instead.
 
 The archive is written under `.artifacts/portable`. Build each operating system
 and architecture on a matching CI runner; Node.js and Mihomo are native binaries.
+
+The release matrix covers Windows, Linux, and macOS on x64 and arm64. Each
+archive includes a CycloneDX SBOM and build metadata, with matching sidecar files
+covered by `SHA256SUMS.txt`. The SBOM records the npm build graph (including the
+frontend and build tools) plus bundled Node/Mihomo binaries, not their complete
+native transitive dependencies. System Settings shows source revision, UTC build
+time, target and runtime versions. For headless use, pass `--no-open` to `start`
+or `restart`, including when using `--background`.
+
+See [Release engineering](RELEASING.md) for CI gates, artifact verification,
+GHCR images and recovery from interrupted releases.

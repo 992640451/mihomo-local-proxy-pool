@@ -14,12 +14,19 @@ function sha256(filename) {
 async function main() {
   const directory = path.resolve(argument(process.argv, '--directory', 'release-assets'))
   const output = path.resolve(argument(process.argv, '--output', path.join(directory, 'SHA256SUMS.txt')))
-  const expected = Number(argument(process.argv, '--expected', '5'))
-  const files = (await readdir(directory, { withFileTypes: true }))
-    .filter(entry => entry.isFile() && (/\.zip$/.test(entry.name) || /\.tar\.gz$/.test(entry.name)))
+  const expected = Number(argument(process.argv, '--expected', '6'))
+  const allFiles = (await readdir(directory, { withFileTypes: true }))
+    .filter(entry => entry.isFile())
     .map(entry => entry.name)
     .sort()
-  if (files.length !== expected) throw new Error(`发布制品数量错误：期望 ${expected}，实际 ${files.length}`)
+  const archives = allFiles.filter(name => /\.(zip|tar\.gz)$/.test(name))
+  if (archives.length !== expected) throw new Error(`发布制品数量错误：期望 ${expected}，实际 ${archives.length}`)
+  for (const archive of archives) {
+    for (const suffix of ['.cdx.json', '.build.json']) {
+      if (!allFiles.includes(`${archive}${suffix}`)) throw new Error(`发布制品缺少 ${archive}${suffix}`)
+    }
+  }
+  const files = allFiles.filter(name => name !== path.basename(output) && (/\.(zip|tar\.gz|json)$/.test(name)))
   const lines = []
   for (const file of files) lines.push(`${await sha256(path.join(directory, file))}  ${file}`)
   await writeFile(output, `${lines.join('\n')}\n`, 'utf8')

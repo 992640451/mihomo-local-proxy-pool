@@ -23,10 +23,12 @@ import { RecoveryService } from './recovery/service.mjs'
 import { createMutationGate } from './recovery/mutationGate.mjs'
 import { RECOVERY_MAX_REQUEST_BYTES } from '../shared/recoveryLimits.js'
 import { createOriginGuard, securityHeaders } from './security/http.mjs'
+import { readBuildInfo } from './runtime/buildInfo.mjs'
 
 const app = express()
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const appVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version || 'unknown'
+const buildInfo = readBuildInfo(root)
 const startedAt = Date.now()
 const probeHost = process.env.PROBE_HOST || '127.0.0.1'
 const authUser = process.env.AUTH_USERNAME || ''
@@ -158,7 +160,7 @@ const { requireAuth } = registerAuthRoutes(app, {
 app.use('/api', requireAuth)
 const mutationGate = createMutationGate()
 registerSubscriptionRoutes(app, { subscriptionService, subscriptionMode, loadLiveCatalog, syncCoreAfterSubscriptionChange, auditStore, mutationGate })
-registerRuntimeRoute(app, { startedAt, appVersion, embeddedCore, embeddedCoreStatus, loadLiveCatalog })
+registerRuntimeRoute(app, { startedAt, appVersion, buildInfo, embeddedCore, embeddedCoreStatus, loadLiveCatalog })
 registerAuditRoutes(app, { auditStore, mutationGate })
 registerReliabilityRoutes(app, { recoveryService, diagnosticService, auditStore, mutationGate })
 registerPortRoutes(app, {

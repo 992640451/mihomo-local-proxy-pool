@@ -25,3 +25,27 @@ jobs:
         run: cp .env.example .env
       - run: docker compose --env-file .env.example config
       - run: docker build -t proxy-port-manager:ci .
+      - run: node scripts/smoke-container.mjs --image proxy-port-manager:ci --version "$(node -p 'require("./package.json").version')"
+
+  portable-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+          - runner: windows-2025
+            platform: windows
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.8.1
+          cache: npm
+      - run: npm ci
+      - run: npm run portable:build
+      - name: Verify distributable without publishing
+        shell: bash
+        run: node scripts/prepare-release-asset.mjs --source-root . --output .artifacts/ci-assets --version "$(node -p 'require("./package.json").version')" --platform "${{ matrix.platform }}" --arch x64 --require-verified-core

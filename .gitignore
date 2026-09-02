@@ -7,6 +7,7 @@ dist/
 /runtime/
 *.log
 .artifacts/
+/build-info.json
 .docker-artifacts/
 $artifact/
 .git-transaction/

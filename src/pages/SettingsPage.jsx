@@ -102,6 +102,14 @@ export function SettingsPage({ runtime, refreshSeconds, setRefreshSeconds, reset
       <label><span>恢复包文件</span><input type="file" accept="application/json,.json" onChange={(event) => { setRestoreFile(event.target.files?.[0] || null); setRestoreSummary(null); }} /></label><label><span>恢复包口令</span><input type="password" autoComplete="current-password" value={restorePassword} onChange={(event) => { setRestorePassword(event.target.value); setRestoreSummary(null); }} /></label>
       {restoreSummary && <div className="recovery-summary">版本 {restoreSummary.appVersion} · {restoreSummary.subscriptions} 个订阅 · {restoreSummary.nodes} 个节点 · {restoreSummary.ports} 个端口</div>}<div className="page-actions"><button className="button ghost" disabled={restoreBusy} onClick={inspectRecovery}>{restoreBusy ? "校验中…" : "校验恢复包"}</button><button className="button danger" disabled={restoreBusy || !restoreSummary} onClick={restoreRecovery}>替换并恢复</button></div>
     </div></section>
-    <section className="data-card"><h2>运行环境</h2><dl className="detail-list"><div><dt>应用版本</dt><dd>{runtime.appVersion || "unknown"}</dd></div><div><dt>主机</dt><dd>{runtime.hostname}</dd></div><div><dt>平台</dt><dd>{runtime.platform}</dd></div><div><dt>服务进程运行时长</dt><dd>{formatDuration(runtime.processUptimeSeconds)}</dd></div><div><dt>系统运行时长</dt><dd>{formatDuration(runtime.systemUptimeSeconds)}</dd></div></dl></section>
+    <section className="data-card"><h2>运行环境</h2><dl className="detail-list">
+      <div><dt>应用版本</dt><dd>{runtime.appVersion || "unknown"}</dd></div>
+      <div><dt>构建提交</dt><dd title={runtime.buildInfo?.revision || ""}>{runtime.buildInfo?.revision?.slice(0, 12) || "未注入（本地构建）"}</dd></div>
+      <div><dt>构建时间（UTC）</dt><dd>{runtime.buildInfo?.builtAt || "未注入"}</dd></div>
+      <div><dt>构建目标</dt><dd>{runtime.buildInfo?.target || "source"}</dd></div>
+      <div><dt>Node.js</dt><dd>{runtime.buildInfo?.nodeVersion || "unknown"}</dd></div>
+      <div><dt>Mihomo</dt><dd>{runtime.core?.version || "不可用"}</dd></div>
+      <div><dt>主机</dt><dd>{runtime.hostname}</dd></div><div><dt>平台</dt><dd>{runtime.platform}</dd></div><div><dt>服务进程运行时长</dt><dd>{formatDuration(runtime.processUptimeSeconds)}</dd></div><div><dt>系统运行时长</dt><dd>{formatDuration(runtime.systemUptimeSeconds)}</dd></div>
+    </dl></section>
   </div>;
 }

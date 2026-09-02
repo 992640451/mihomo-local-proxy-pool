@@ -178,7 +178,7 @@ async function waitForBackground(paths, timeoutMs = 20000) {
   throw new Error('后台服务未能在预期时间内启动，请查看 application.log 和 mihomo.log')
 }
 
-async function startBackground() {
+async function startBackground({ shouldOpen = true } = {}) {
   const { paths } = await prepareRuntime({ announceCredentials: true })
   const current = await readJson(paths.runtimeState)
   if (current && processAlive(Number(current.pid))) throw new Error(`服务已在运行：${current.managementUrl}`)
@@ -194,7 +194,7 @@ async function startBackground() {
   } finally { closeSync(logFd) }
   const state = await waitForBackground(paths)
   console.log(`Proxy Port Manager 已在后台启动：${state.managementUrl}`)
-  openBrowser(state.managementUrl)
+  if (shouldOpen) openBrowser(state.managementUrl)
 }
 
 async function stopBackground() {
@@ -239,15 +239,16 @@ async function showStatus({ open = false } = {}) {
 }
 
 function usage() {
-  console.log(`Proxy Port Manager 便携服务\n\n用法：\n  ppm start [--background]\n  ppm stop\n  ppm restart [--background]\n  ppm status\n  ppm open\n\n不带 --background 时在前台运行，按 Ctrl+C 停止。`)
+  console.log(`Proxy Port Manager 便携服务\n\n用法：\n  ppm start [--background] [--no-open]\n  ppm stop\n  ppm restart [--background] [--no-open]\n  ppm status\n  ppm open\n\n不带 --background 时在前台运行，按 Ctrl+C 停止。`)
 }
 
 async function main() {
   const [command = 'start', ...args] = process.argv.slice(2)
   if (command === '_serve') return serve({ shouldOpen: !args.includes('--no-open') })
-  if (command === 'start') return args.includes('--background') ? startBackground() : serve()
+  const options = { shouldOpen: !args.includes('--no-open') }
+  if (command === 'start') return args.includes('--background') ? startBackground(options) : serve(options)
   if (command === 'stop') return stopBackground()
-  if (command === 'restart') { await stopBackground(); return args.includes('--background') ? startBackground() : serve() }
+  if (command === 'restart') { await stopBackground(); return args.includes('--background') ? startBackground(options) : serve(options) }
   if (command === 'status') return showStatus()
   if (command === 'open') return showStatus({ open: true })
   if (command === '--help' || command === '-h' || command === 'help') return usage()
