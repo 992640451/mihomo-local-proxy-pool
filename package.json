@@ -14,6 +14,9 @@
     "build": "vite build",
     "portable:start": "node scripts/launcher.mjs start",
     "portable:build": "npm run build && node scripts/build-portable.mjs",
+    "portable:package": "node scripts/build-portable.mjs",
+    "release:validate": "node scripts/validate-release.mjs",
+    "release:notes": "node scripts/extract-release-notes.mjs",
     "docker:update": "node scripts/docker-update.mjs",
     "docker:watch": "docker compose watch proxy-port-manager",
     "test": "node --test tests/*.test.mjs"

@@ -96,7 +96,7 @@ docker compose up -d --build
 
 #### 3. 打开管理页面
 
-访问 **http://127.0.0.1:4173**，使用初始化时显示的账号和密码登录。
+访问 [http://127.0.0.1:4173](http://127.0.0.1:4173)，使用初始化时显示的账号和密码登录。
 
 检查服务是否正常：
 
@@ -278,7 +278,7 @@ npm run build
 npm run dev
 ```
 
-更多内容： [Docker 部署](DOCKER.md) · [变更记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md)
+更多内容： [Docker 部署](DOCKER.md) · [发布指南](RELEASING.md) · [变更记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md)
 
 ## 项目状态
 

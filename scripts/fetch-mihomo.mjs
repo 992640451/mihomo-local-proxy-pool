@@ -8,13 +8,17 @@ import { gunzipSync } from 'node:zlib'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-async function findExecutable(directory) {
+export function isMihomoExecutable(filename, platform = process.platform) {
+  return platform === 'win32' ? /^mihomo(?:-.*)?\.exe$/i.test(filename) : /^mihomo(?:-.*)?$/i.test(filename)
+}
+
+async function findExecutable(directory, platform) {
   for (const item of await readdir(directory, { withFileTypes: true })) {
     const filename = path.join(directory, item.name)
     if (item.isDirectory()) {
-      const nested = await findExecutable(filename)
+      const nested = await findExecutable(filename, platform)
       if (nested) return nested
-    } else if (/^mihomo(?:-.*)?(?:\.exe)?$/i.test(item.name)) return filename
+    } else if (isMihomoExecutable(item.name, platform)) return filename
   }
   return null
 }
@@ -51,7 +55,7 @@ export async function fetchMihomo({
       const archiveFile = path.join(temporary, target.archive)
       await writeFile(archiveFile, archive)
       run(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-xf', archiveFile, '-C', temporary])
-      const executable = await findExecutable(temporary)
+      const executable = await findExecutable(temporary, platform)
       if (!executable) throw new Error('Mihomo 压缩包中没有可执行文件')
       await writeFile(outputFile, await readFile(executable), { mode: 0o755 })
     } finally {

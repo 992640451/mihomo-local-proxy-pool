@@ -87,7 +87,7 @@ docker compose up -d --build
 
 #### 3. Open the dashboard
 
-Visit **http://127.0.0.1:4173** and sign in with the credentials printed during initialization.
+Visit [http://127.0.0.1:4173](http://127.0.0.1:4173) and sign in with the credentials printed during initialization.
 
 Check that the service is ready:
 
@@ -269,7 +269,7 @@ npm run build
 npm run dev
 ```
 
-More: [Docker deployment](DOCKER.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+More: [Docker deployment](DOCKER.md) · [Release guide](RELEASING.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ## Project status
 

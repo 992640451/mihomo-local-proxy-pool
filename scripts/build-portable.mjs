@@ -1,19 +1,19 @@
-import { cp, mkdir, rm, stat } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { fetchMihomo } from './fetch-mihomo.mjs'
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function argument(name) {
   const index = process.argv.indexOf(name)
   return index >= 0 ? process.argv[index + 1] : null
 }
 
-function targetName() {
+function targetName(version) {
   const platform = ({ win32: 'windows', darwin: 'macos', linux: 'linux' })[process.platform] || process.platform
-  return `proxy-port-manager-${platform}-${process.arch}`
+  return `proxy-port-manager-v${version}-${platform}-${process.arch}`
 }
 
 function assertInside(parent, child) {
@@ -22,7 +22,7 @@ function assertInside(parent, child) {
 }
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { cwd: projectRoot, stdio: 'inherit', shell: false, ...options })
+  const result = spawnSync(command, args, { stdio: 'inherit', shell: false, ...options })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} 执行失败，退出码 ${result.status}`)
 }
@@ -32,15 +32,20 @@ async function isFile(filename) {
 }
 
 async function main() {
+  const projectRoot = path.resolve(argument('--root') || scriptRoot)
+  const packageJson = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'))
   const outputRoot = path.resolve(argument('--output') || path.join(projectRoot, '.artifacts', 'portable'))
   let coreSource = argument('--core') || process.env.PPM_MIHOMO_BINARY || ''
   if (!coreSource) {
-    const fetched = await fetchMihomo({ output: path.join(outputRoot, '.core-cache', process.platform === 'win32' ? 'mihomo.exe' : 'mihomo') })
+    const fetched = await fetchMihomo({
+      output: path.join(outputRoot, '.core-cache', process.platform === 'win32' ? 'mihomo.exe' : 'mihomo'),
+      manifestFile: path.join(projectRoot, 'release', 'core-manifest.json'),
+    })
     coreSource = fetched.outputFile
   }
   coreSource = path.resolve(coreSource)
   if (!await isFile(coreSource)) throw new Error(`Mihomo 核心不存在：${coreSource}`)
-  const name = targetName()
+  const name = targetName(packageJson.version)
   const stage = path.join(outputRoot, name)
   const archive = path.join(outputRoot, `${name}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`)
   assertInside(outputRoot, stage)

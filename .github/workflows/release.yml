@@ -1,0 +1,189 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的 Git 标签，例如 v1.0.0
+        required: true
+        type: string
+      publish:
+        description: 验证通过后立即发布；关闭时仅创建 Draft
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
+  RELEASE_NODE_VERSION: 26.8.1
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+    steps:
+      - name: Checkout release tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          path: tooling
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          path: source
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Validate release metadata
+        id: metadata
+        run: node tooling/scripts/validate-release.mjs --root source --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        working-directory: source
+        run: npm ci
+      - name: Test
+        working-directory: source
+        run: npm test
+      - name: Build web application
+        working-directory: source
+        run: npm run build
+      - name: Validate Compose configuration
+        working-directory: source
+        run: docker compose --env-file .env.example config
+      - name: Build container image
+        working-directory: source
+        run: docker build -t proxy-port-manager:release-validation .
+
+  build-portable:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows
+            arch: x64
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - runner: macos-15-intel
+            platform: macos
+            arch: x64
+          - runner: macos-15
+            platform: macos
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout release tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          path: tooling
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          path: source
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.RELEASE_NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Install dependencies
+        working-directory: source
+        run: npm ci
+      - name: Build portable archive
+        run: |
+          npm --prefix source run build
+          npm --prefix tooling run portable:package -- --root ../source
+      - name: Verify and normalize release asset
+        id: asset
+        run: node tooling/scripts/prepare-release-asset.mjs --source-root source --output release-assets --version "${{ needs.validate.outputs.version }}" --platform "${{ matrix.platform }}" --arch "${{ matrix.arch }}"
+      - name: Upload portable archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: portable-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ steps.asset.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [validate, build-portable]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout release tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TOOLING_REF }}
+          path: tooling
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          path: source
+      - name: Download portable archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: portable-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create checksums
+        run: node tooling/scripts/create-checksums.mjs --directory release-assets --output release-assets/SHA256SUMS.txt --expected 5
+      - name: Generate release notes
+        run: node tooling/scripts/extract-release-notes.mjs --root source --tag "$RELEASE_TAG" --output release-notes.md
+      - name: Attest release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: release-assets/*
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+          PUBLISH_RELEASE: ${{ github.event_name == 'push' || inputs.publish }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags=(--title "$RELEASE_TAG" --notes-file release-notes.md)
+          if [[ "$PRERELEASE" == "true" ]]; then flags+=(--prerelease); fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Release $RELEASE_TAG 已经发布，拒绝覆盖公开制品。" >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+            gh release edit "$RELEASE_TAG" "${flags[@]}"
+          else
+            gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft "${flags[@]}"
+          fi
+          if [[ "$PUBLISH_RELEASE" == "true" ]]; then
+            publish_flags=(--draft=false)
+            if [[ "$PRERELEASE" != "true" ]]; then publish_flags+=(--latest); fi
+            gh release edit "$RELEASE_TAG" "${publish_flags[@]}"
+          fi
