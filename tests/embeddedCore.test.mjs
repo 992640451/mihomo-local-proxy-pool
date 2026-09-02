@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import YAML from 'yaml'
-import { applyEmbeddedPort, deleteEmbeddedPort, embeddedListeners, ensureEmbeddedCore } from '../server/embeddedCore.mjs'
+import { applyEmbeddedPort, deleteEmbeddedPort, embeddedListeners, ensureEmbeddedCore, exportEmbeddedCoreState, restoreEmbeddedCoreState } from '../server/embeddedCore.mjs'
 import { loadSubscriptionCatalog } from '../server/subscriptionCatalog.mjs'
 
 async function fixture() {
@@ -144,4 +144,22 @@ test('deletes an embedded listener and preserves the other ports', async () => {
   const config = YAML.parse(await readFile(f.configPath, 'utf8'))
   assert.equal(config.listeners.some(item => item.port === 17891), false)
   assert.equal(config['proxy-groups'].some(item => item.name === 'PPM-17891'), false)
+})
+
+test('restores a validated embedded-core state and rejects missing node references', async () => {
+  const f = await fixture()
+  const options = { statePath: f.statePath, configPath: f.configPath, controllerUrl: '' }
+  await ensureEmbeddedCore(f.root, options)
+  const original = await exportEmbeddedCoreState(options)
+  const node = (await loadSubscriptionCatalog(f.root)).nodes.find(item => item.name === '美国 B').id
+  await applyEmbeddedPort({ source: f.root, port: 17892, nodeId: node, protocol: 'Mixed', ...options })
+  assert.equal((await exportEmbeddedCoreState(options)).ports['17892'].nodeId, node)
+  const restored = await restoreEmbeddedCoreState(f.root, original, options)
+  assert.equal(restored.ports, 1)
+  assert.equal((await exportEmbeddedCoreState(options)).ports['17892'], undefined)
+  await assert.rejects(() => restoreEmbeddedCoreState(f.root, {
+    version: 2,
+    ports: { 17900: { nodeId: 'missing', nodeIds: ['missing'], strategy: 'select', protocol: 'Mixed', enabled: true } },
+  }, options), /节点不存在/)
+  assert.deepEqual(await exportEmbeddedCoreState(options), original)
 })

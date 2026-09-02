@@ -132,6 +132,16 @@ export class SessionStore {
     return this.pruneStatement.run(now, now, this.credentialVersion).changes
   }
 
+  health() {
+    const row = this.db.prepare('SELECT count(*) count, min(absolute_expires_at) next_expiry FROM sessions').get()
+    return {
+      ok: true,
+      schemaVersion: this.schemaVersion,
+      activeSessions: Number(row.count),
+      nextExpiryAt: row.next_expiry === null ? null : Number(row.next_expiry),
+    }
+  }
+
   close() {
     this.db.close()
   }

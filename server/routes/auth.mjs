@@ -1,4 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { recordAudit } from '../audit/record.mjs'
 import { apiError } from '../http/responses.mjs'
 
 function parseCookies(req) {
@@ -22,8 +23,16 @@ export function registerAuthRoutes(app, {
   rememberedSessionAbsoluteMs,
   cookieName = 'ppm_session',
   cookieSecure = false,
+  auditStore,
 } = {}) {
   const attempts = new Map()
+
+  function pruneAttempts(now) {
+    for (const [key, value] of attempts) {
+      if (now - value.since > 15 * 60 * 1000) attempts.delete(key)
+    }
+    while (attempts.size > 1024) attempts.delete(attempts.keys().next().value)
+  }
 
   function cookieHeader(req, value, maxAgeSeconds) {
     const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase()
@@ -39,17 +48,21 @@ export function registerAuthRoutes(app, {
   }
 
   function requireAuth(req, res, next) {
-    if (!configured) return next()
-    if (findSession(req, true)) return next()
+    if (!configured) { req.auth = { username: 'local-admin' }; return next() }
+    const found = findSession(req, true)
+    if (found) { req.auth = { username: found.session.username }; return next() }
     res.set('Set-Cookie', cookieHeader(req, '', 0))
     return apiError(req, res, { status: 401, code: 'AUTH_REQUIRED', message: '需要登录' })
   }
 
   app.post('/api/auth/login', (req, res) => {
     if (!configured) return apiError(req, res, { status: 503, code: 'AUTH_NOT_CONFIGURED', message: '管理认证尚未配置' })
-    const key = req.ip, now = Date.now(), record = attempts.get(key) || { count: 0, since: now }
+    const key = req.ip, now = Date.now(), started = Date.now()
+    pruneAttempts(now)
+    const record = attempts.get(key) || { count: 0, since: now }
     if (now - record.since > 15 * 60 * 1000) { record.count = 0; record.since = now }
     if (record.count >= 8) {
+      recordAudit(auditStore, req, { actor: 'anonymous', action: 'auth.login', outcome: 'failure', targetType: 'session', message: '登录请求被频率限制', durationMs: Date.now() - started })
       res.set('Retry-After', '900')
       return apiError(req, res, { status: 429, code: 'TOO_MANY_ATTEMPTS', message: '登录尝试次数过多', meta: { retryAfterSeconds: 900 } })
     }
@@ -59,6 +72,7 @@ export function registerAuthRoutes(app, {
     if (!valid) {
       record.count += 1
       attempts.set(key, record)
+      recordAudit(auditStore, req, { actor: 'anonymous', action: 'auth.login', outcome: 'failure', targetType: 'session', message: '管理页面登录失败', durationMs: Date.now() - started })
       return apiError(req, res, { status: 401, code: 'INVALID_CREDENTIALS', message: '账号或密码不正确', meta: { remainingAttempts: Math.max(0, 8 - record.count) } })
     }
     attempts.delete(key)
@@ -67,6 +81,8 @@ export function registerAuthRoutes(app, {
     const idleMs = remember ? rememberedSessionIdleMs : sessionIdleMs
     const absoluteMs = remember ? rememberedSessionAbsoluteMs : sessionAbsoluteMs
     sessionStore.create(id, username, now, { idleMs, absoluteMs })
+    req.auth = { username }
+    recordAudit(auditStore, req, { action: 'auth.login', targetType: 'session', message: '管理页面登录成功', durationMs: Date.now() - started, metadata: { remembered: remember } })
     res.set('Cache-Control', 'no-store').set('Set-Cookie', cookieHeader(req, id, remember ? Math.floor(absoluteMs / 1000) : undefined)).json({ authenticated: true, remembered: remember, expiresIn: Math.floor(Math.min(idleMs, absoluteMs) / 1000) })
   })
 
@@ -83,7 +99,10 @@ export function registerAuthRoutes(app, {
 
   app.post('/api/auth/logout', (req, res) => {
     const id = parseCookies(req)[cookieName]
+    const found = sessionStore.find(id)
+    if (found) req.auth = { username: found.username }
     sessionStore.delete(id)
+    recordAudit(auditStore, req, { action: 'auth.logout', targetType: 'session', message: '已退出管理页面' })
     res.status(204).set('Cache-Control', 'no-store').set('Set-Cookie', cookieHeader(req, '', 0)).end()
   })
 

@@ -172,6 +172,8 @@ ALL_PROXY=socks5h://127.0.0.1:17900
 - 健康检查、自动跳过故障节点和 Mihomo 热重载。
 - 端口监听检测与多连接出口分布验证。
 - 会话、订阅和端口池持久化，容器重建后仍可恢复。
+- 口令加密的配置备份与失败自动回滚。
+- 持久化操作审计与脱敏系统诊断导出。
 - 可选迁移 Clash Verge 远程订阅。
 
 ## 它如何工作
@@ -230,8 +232,11 @@ docker compose up -d --force-recreate proxy-port-manager
 
 - `.env` 包含本机密钥，已被 Git 忽略，请勿分享。
 - 订阅 URL、原始 YAML 和节点敏感字段使用 AES-256-GCM 加密后写入 SQLite。
+- “系统设置”可以下载口令加密恢复包；恢复会替换当前订阅和端口池，但不会导入登录会话或操作记录。
+- 恢复包原始数据上限为 24 MiB，加密文件上限为 33 MiB；超限时会拒绝导出，避免生成无法导入的备份。
+- “操作记录”保存在服务端并在写入前脱敏；诊断导出不包含完整订阅 URL、节点凭据、Cookie 或控制器密钥。
 - 默认 Compose 只绑定 `127.0.0.1`；不要在没有额外认证和网络隔离时改成 `0.0.0.0`。
-- `proxy-session-data` 保存订阅、会话和端口池；`proxy-mihomo-data` 保存 Mihomo 运行配置。
+- `proxy-session-data` 保存订阅、会话、审计和端口池；`proxy-mihomo-data` 保存 Mihomo 运行配置。
 
 安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 

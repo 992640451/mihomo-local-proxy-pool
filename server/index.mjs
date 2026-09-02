@@ -1,22 +1,32 @@
 import express from 'express'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { AuditStore } from './audit/store.mjs'
+import { DiagnosticService } from './diagnostics/service.mjs'
 import { buildNativeCatalog, defaultConfigDir, loadSubscriptionCatalog } from './subscriptionCatalog.mjs'
 import { applyMihomoPort, deleteMihomoPort } from './mihomoConfig.mjs'
 import { probeProxyEgress, verifyProxyPool } from './egressProbe.mjs'
 import { createCredentialVersion, SessionStore } from './sessionStore.mjs'
-import { applyEmbeddedPort, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, isEmbeddedCoreEnabled, syncEmbeddedCore } from './embeddedCore.mjs'
+import { applyEmbeddedPort, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, exportEmbeddedCoreState, isEmbeddedCoreEnabled, restoreEmbeddedCoreState, syncEmbeddedCore } from './embeddedCore.mjs'
 import { SubscriptionStore } from './subscriptions/store.mjs'
 import { SubscriptionService } from './subscriptions/service.mjs'
 import { requestContext } from './http/requestContext.mjs'
 import { apiNotFound, apiUnhandledError } from './http/responses.mjs'
 import { registerAuthRoutes } from './routes/auth.mjs'
+import { registerAuditRoutes } from './routes/audit.mjs'
 import { registerPortRoutes } from './routes/ports.mjs'
+import { registerReliabilityRoutes } from './routes/reliability.mjs'
 import { registerSubscriptionRoutes } from './routes/subscriptions.mjs'
 import { registerHealthRoute, registerRuntimeRoute } from './routes/system.mjs'
+import { RecoveryService } from './recovery/service.mjs'
+import { createMutationGate } from './recovery/mutationGate.mjs'
+import { RECOVERY_MAX_REQUEST_BYTES } from '../shared/recoveryLimits.js'
+import { createOriginGuard, securityHeaders } from './security/http.mjs'
 
 const app = express()
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const appVersion = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version || 'unknown'
 const startedAt = Date.now()
 const probeHost = process.env.PROBE_HOST || '127.0.0.1'
 const authUser = process.env.AUTH_USERNAME || ''
@@ -30,8 +40,17 @@ const rememberedSessionAbsoluteMs = Math.max(sessionAbsoluteMs, Math.max(300, Nu
 const sessionTouchMs = Math.max(1, Number(process.env.AUTH_SESSION_TOUCH_SECONDS || 300)) * 1000
 const embeddedCore = isEmbeddedCoreEnabled()
 const subscriptionMode = String(process.env.SUBSCRIPTION_MODE || 'legacy').toLowerCase()
+const subscriptionDbFile = process.env.SUBSCRIPTION_DB || '/data/subscriptions.sqlite'
+const sessionDbFile = process.env.AUTH_SESSION_DB || ':memory:'
+const persistentRoot = [subscriptionMode !== 'legacy' ? subscriptionDbFile : null, sessionDbFile].find(value => value && value !== ':memory:')
+const auditDbFile = process.env.AUDIT_DB || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), 'audit.sqlite') : ':memory:')
+const auditStore = new AuditStore({
+  filename: auditDbFile,
+  retentionDays: Number(process.env.AUDIT_RETENTION_DAYS || 30),
+  maxEvents: Number(process.env.AUDIT_MAX_EVENTS || 10000),
+})
 const sessionStore = new SessionStore({
-  filename: process.env.AUTH_SESSION_DB || ':memory:',
+  filename: sessionDbFile,
   idleMs: sessionIdleMs,
   absoluteMs: sessionAbsoluteMs,
   touchIntervalMs: sessionTouchMs,
@@ -41,7 +60,7 @@ const sessionStore = new SessionStore({
 let subscriptionStore = null, subscriptionService = null
 if (subscriptionMode !== 'legacy') {
   subscriptionStore = new SubscriptionStore({
-    filename: process.env.SUBSCRIPTION_DB || '/data/subscriptions.sqlite',
+    filename: subscriptionDbFile,
     masterKey: process.env.SUBSCRIPTION_MASTER_KEY || process.env.EMBEDDED_CORE_SECRET || authHash,
   })
   subscriptionService = new SubscriptionService({
@@ -61,7 +80,6 @@ if (subscriptionMode !== 'legacy') {
 }
 
 const coreOptions = subscriptionService ? { definitionProvider: () => subscriptionService.getDefinitions({ includeOrphaned: true, includeDisabled: true }) } : {}
-if (subscriptionService) subscriptionService.onScheduledRefresh = () => syncCoreAfterSubscriptionChange()
 
 async function loadLiveCatalog() {
   const source = defaultConfigDir()
@@ -76,8 +94,50 @@ async function syncCoreAfterSubscriptionChange() {
   if (embeddedCore) await syncEmbeddedCore(defaultConfigDir(), coreOptions)
 }
 
+if (subscriptionService) {
+  subscriptionService.onScheduledRefresh = async event => {
+    try {
+      if (!event.ok) throw event.error
+      await syncCoreAfterSubscriptionChange()
+      auditStore.record({ actor: 'scheduler', action: 'subscription.refresh', targetType: 'subscription', targetId: event.subscription.id, message: `已自动刷新订阅“${event.subscription.name}”`, metadata: { nodeCount: event.subscription.nodeCount } })
+    } catch (error) {
+      auditStore.record({ actor: 'scheduler', action: 'subscription.refresh', outcome: 'failure', targetType: 'subscription', targetId: event.subscription?.id, message: `自动刷新订阅失败：${error.message}` })
+    }
+  }
+}
+
+const recoveryService = new RecoveryService({
+  subscriptionStore,
+  appVersion,
+  exportPorts: embeddedCore ? () => exportEmbeddedCoreState(coreOptions) : null,
+  restorePorts: embeddedCore ? state => restoreEmbeddedCoreState(defaultConfigDir(), state, coreOptions) : null,
+  suspend: subscriptionService ? () => {
+    const status = subscriptionService.schedulerStatus()
+    if (status.refreshing) throw new Error('订阅正在刷新，请等待刷新完成后重试恢复')
+    if (status.running) subscriptionService.stopScheduler()
+    return status.running
+  } : null,
+  resume: subscriptionService ? wasRunning => { if (wasRunning) subscriptionService.startScheduler() } : null,
+})
+const diagnosticService = new DiagnosticService({
+  appVersion,
+  startedAt,
+  subscriptionStore,
+  subscriptionService,
+  sessionStore,
+  auditStore,
+  embeddedCore,
+  embeddedCoreStatus,
+  loadLiveCatalog,
+  dataFiles: [subscriptionMode !== 'legacy' ? subscriptionDbFile : null, sessionDbFile, auditDbFile, process.env.EMBEDDED_CORE_STATE_PATH].filter(value => value && value !== ':memory:'),
+  deploymentMode: process.env.PPM_PORTABLE === '1' ? 'portable' : process.env.NODE_ENV === 'production' ? 'container' : 'source',
+})
+
 app.disable('x-powered-by')
 app.use(requestContext)
+app.use(securityHeaders)
+app.use('/api', createOriginGuard({ allowedOrigins: process.env.APP_ALLOWED_ORIGINS || '', trustProxy: process.env.APP_TRUST_PROXY === 'true' }))
+app.use('/api/recovery', express.json({ limit: RECOVERY_MAX_REQUEST_BYTES }))
 app.use(express.json({ limit: '6mb' }))
 registerHealthRoute(app)
 
@@ -92,11 +152,15 @@ const { requireAuth } = registerAuthRoutes(app, {
   rememberedSessionIdleMs,
   rememberedSessionAbsoluteMs,
   cookieSecure: process.env.AUTH_COOKIE_SECURE === 'true',
+  auditStore,
 })
 
 app.use('/api', requireAuth)
-registerSubscriptionRoutes(app, { subscriptionService, subscriptionMode, loadLiveCatalog, syncCoreAfterSubscriptionChange })
-registerRuntimeRoute(app, { startedAt, embeddedCore, embeddedCoreStatus, loadLiveCatalog })
+const mutationGate = createMutationGate()
+registerSubscriptionRoutes(app, { subscriptionService, subscriptionMode, loadLiveCatalog, syncCoreAfterSubscriptionChange, auditStore, mutationGate })
+registerRuntimeRoute(app, { startedAt, appVersion, embeddedCore, embeddedCoreStatus, loadLiveCatalog })
+registerAuditRoutes(app, { auditStore, mutationGate })
+registerReliabilityRoutes(app, { recoveryService, diagnosticService, auditStore, mutationGate })
 registerPortRoutes(app, {
   probeHost,
   embeddedCore,
@@ -110,6 +174,8 @@ registerPortRoutes(app, {
   embeddedPortStatus,
   probeProxyEgress,
   verifyProxyPool,
+  auditStore,
+  mutationGate,
 })
 app.use('/api', apiNotFound)
 app.use(express.static(path.join(root, 'dist')))
@@ -155,6 +221,7 @@ export function stopApplication() {
       if (error) return reject(error)
       subscriptionStore?.close()
       sessionStore.close()
+      auditStore.close()
       server = null
       resolve()
     }

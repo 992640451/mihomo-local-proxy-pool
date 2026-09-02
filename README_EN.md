@@ -163,6 +163,8 @@ Automatic strategies only use nodes that pass health checks. The service rejects
 - Health checks, failed-node skipping, and Mihomo hot reload.
 - Listener checks and multi-connection exit-distribution verification.
 - Persistent sessions, subscriptions, and port-pool state.
+- Passphrase-encrypted configuration backups with automatic rollback on restore failure.
+- Persistent server-side audit events and redacted diagnostic exports.
 - Optional migration from Clash Verge remote subscriptions.
 
 ## How it works
@@ -221,8 +223,11 @@ This resets only administrator credentials and preserves the subscription encryp
 
 - `.env` contains machine-local secrets, is ignored by Git, and must not be shared.
 - Subscription URLs, raw YAML, and sensitive node fields are encrypted with AES-256-GCM before being stored in SQLite.
+- System Settings can download a passphrase-encrypted recovery package. Restoring replaces subscriptions and port pools, but never imports login sessions or audit events.
+- Recovery payloads are limited to 24 MiB and encrypted files to 33 MiB. Oversized payloads are rejected during export so backups remain importable.
+- Audit events are redacted before storage. Diagnostic exports exclude complete subscription URLs, node credentials, cookies, and controller secrets.
 - Compose binds to `127.0.0.1` by default. Do not change it to `0.0.0.0` without additional authentication and network isolation.
-- `proxy-session-data` stores subscriptions, sessions, and pools; `proxy-mihomo-data` stores Mihomo runtime configuration.
+- `proxy-session-data` stores subscriptions, sessions, audit events, and pools; `proxy-mihomo-data` stores Mihomo runtime configuration.
 
 Report security issues privately according to [SECURITY.md](SECURITY.md).
 

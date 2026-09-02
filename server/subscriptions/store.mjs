@@ -41,6 +41,7 @@ const subscriptionMigrations = [
 
 export class SubscriptionStore {
   constructor({ filename = ':memory:', masterKey }) {
+    this.filename = filename
     const migrated = openMigratedDatabase({
       filename,
       name: '订阅',
@@ -144,6 +145,105 @@ export class SubscriptionStore {
   }
 
   nodeIds(id) { return this.db.prepare('SELECT id FROM subscription_nodes WHERE subscription_id=?').all(id).map(row => row.id) }
+
+  exportRecovery() {
+    return this.db.prepare('SELECT * FROM subscriptions ORDER BY created_at,id').all().map(row => {
+      const snapshot = row.active_snapshot_id
+        ? this.db.prepare('SELECT * FROM subscription_snapshots WHERE id=?').get(row.active_snapshot_id)
+        : null
+      const nodes = this.db.prepare('SELECT * FROM subscription_nodes WHERE subscription_id=? ORDER BY created_at,id').all(row.id)
+      return {
+        id: row.id,
+        name: row.name,
+        sourceType: row.source_type,
+        url: row.url_encrypted ? this.box.decrypt(row.url_encrypted) : null,
+        enabled: Boolean(row.enabled),
+        priority: Number(row.priority || 0),
+        refreshIntervalSeconds: Number(row.refresh_interval_seconds),
+        etag: row.etag,
+        lastModified: row.last_modified,
+        lastAttemptAt: row.last_attempt_at,
+        lastSuccessAt: row.last_success_at,
+        lastError: row.last_error,
+        createdAt: Number(row.created_at),
+        updatedAt: Number(row.updated_at),
+        snapshot: snapshot ? {
+          id: snapshot.id,
+          content: this.box.decrypt(snapshot.content_encrypted),
+          contentHash: snapshot.content_hash,
+          format: snapshot.format,
+          nodeCount: Number(snapshot.node_count),
+          createdAt: Number(snapshot.created_at),
+        } : null,
+        nodes: nodes.map(node => ({
+          id: node.id,
+          stableKey: node.stable_key,
+          name: node.name,
+          raw: JSON.parse(this.box.decrypt(node.raw_encrypted)),
+          active: Boolean(node.active),
+          orphanedAt: node.orphaned_at,
+          createdAt: Number(node.created_at),
+          updatedAt: Number(node.updated_at),
+        })),
+      }
+    })
+  }
+
+  replaceRecovery(subscriptions) {
+    if (!Array.isArray(subscriptions)) throw new Error('恢复数据中的订阅列表无效')
+    const prepared = subscriptions.map(item => ({
+      ...item,
+      urlEncrypted: this.box.encrypt(item.url || null),
+      snapshot: item.snapshot ? { ...item.snapshot, contentEncrypted: this.box.encrypt(item.snapshot.content) } : null,
+      nodes: (item.nodes || []).map(node => ({ ...node, rawEncrypted: this.box.encrypt(JSON.stringify(node.raw)) })),
+    }))
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      this.db.exec('DELETE FROM subscriptions;')
+      const insertSubscription = this.db.prepare(`INSERT INTO subscriptions(
+        id,name,source_type,url_encrypted,enabled,priority,refresh_interval_seconds,etag,last_modified,
+        active_snapshot_id,last_attempt_at,last_success_at,last_error,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      const insertSnapshot = this.db.prepare(`INSERT INTO subscription_snapshots(
+        id,subscription_id,content_encrypted,content_hash,format,node_count,status,error,created_at
+      ) VALUES (?,?,?,?,?,?,? ,NULL,?)`)
+      const insertNode = this.db.prepare(`INSERT INTO subscription_nodes(
+        id,subscription_id,stable_key,name,raw_encrypted,active,orphaned_at,created_at,updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?)`)
+      for (const item of prepared) {
+        insertSubscription.run(
+          item.id, item.name, item.sourceType, item.urlEncrypted, bool(item.enabled), Number(item.priority || 0),
+          Number(item.refreshIntervalSeconds || 3600), item.etag || null, item.lastModified || null,
+          item.snapshot?.id || null, item.lastAttemptAt || null, item.lastSuccessAt || null, item.lastError || null,
+          Number(item.createdAt || now()), Number(item.updatedAt || now()),
+        )
+        if (item.snapshot) {
+          insertSnapshot.run(
+            item.snapshot.id, item.id, item.snapshot.contentEncrypted, item.snapshot.contentHash,
+            item.snapshot.format, Number(item.snapshot.nodeCount), 'ACTIVE', Number(item.snapshot.createdAt || now()),
+          )
+        }
+        for (const node of item.nodes) {
+          insertNode.run(
+            node.id, item.id, node.stableKey, node.name, node.rawEncrypted, bool(node.active), node.orphanedAt || null,
+            Number(node.createdAt || now()), Number(node.updatedAt || now()),
+          )
+        }
+      }
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+    return { subscriptions: prepared.length, nodes: prepared.reduce((sum, item) => sum + item.nodes.length, 0) }
+  }
+
+  health() {
+    const subscriptions = Number(this.db.prepare('SELECT count(*) count FROM subscriptions').get().count)
+    const nodes = Number(this.db.prepare('SELECT count(*) count FROM subscription_nodes WHERE active=1').get().count)
+    return { ok: true, schemaVersion: this.schemaVersion, subscriptions, activeNodes: nodes }
+  }
+
   delete(id) { this.db.prepare('DELETE FROM subscriptions WHERE id=?').run(id) }
   close() { this.db.close() }
 }

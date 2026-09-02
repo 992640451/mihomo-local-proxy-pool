@@ -1861,13 +1861,17 @@ export default function App() {
     ),
     nodes: <NodesPage catalog={catalog} />,
     subscriptions: <SubscriptionsPage catalog={catalog} refresh={refresh} />,
-    logs: <LogsPage logs={logs} clear={() => setLogs([])} />,
+    logs: <LogsPage />,
     settings: (
       <SettingsPage
         runtime={liveRuntime}
         refreshSeconds={refreshSeconds}
         setRefreshSeconds={setRefreshSeconds}
         refresh={refresh}
+        onRecovered={async () => {
+          await refresh();
+          setPorts([]);
+        }}
         resetPorts={() => {
           setPorts(dedupePortsByPort(catalog.listeners || []));
           addLog("重新同步服务端端口配置");

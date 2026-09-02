@@ -141,7 +141,9 @@ export class SubscriptionService {
         if (!item.enabled || item.sourceType !== 'url' || this.refreshing.has(item.id)) continue
         const base = item.lastAttemptAt || item.lastSuccessAt || item.createdAt
         if (timestamp - base >= item.refreshIntervalSeconds * 1000) {
-          this.refresh(item.id).then(() => this.onScheduledRefresh?.()).catch(() => {})
+          this.refresh(item.id)
+            .then(subscription => this.onScheduledRefresh?.({ ok: true, subscription }))
+            .catch(error => this.onScheduledRefresh?.({ ok: false, subscription: item, error }))
         }
       }
     }
@@ -150,6 +152,15 @@ export class SubscriptionService {
   }
 
   stopScheduler() { if (this.timer) clearInterval(this.timer); this.timer = null }
+
+  schedulerStatus() {
+    return {
+      running: Boolean(this.timer),
+      refreshing: this.refreshing.size,
+      refreshingIds: [...this.refreshing],
+      scheduledSubscriptions: this.store.list().filter(item => item.enabled && item.sourceType === 'url').length,
+    }
+  }
 }
 
 function normalizeInterval(value) {

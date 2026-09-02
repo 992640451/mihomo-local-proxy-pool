@@ -38,7 +38,14 @@ To keep the service running without an open terminal:
 
 Portable data is stored in the `data` directory next to the launcher. Back up
 that directory to preserve subscriptions, encryption keys, login sessions, and
-managed ports. Updating the application must not replace `data`.
+managed ports. Updating the application must not replace `data`. For a portable
+configuration backup, use System Settings to download a passphrase-encrypted
+recovery package. It includes subscriptions and managed ports but deliberately
+excludes login sessions and server audit history.
+
+System Settings also runs component diagnostics and exports a redacted JSON file
+for troubleshooting. Operation history is persisted in `data/audit.sqlite` and
+is subject to the configured retention and maximum-event limits.
 
 The management API, Mihomo controller, and generated proxy listeners bind to
 loopback by default. Do not expose them to a LAN or the public internet without

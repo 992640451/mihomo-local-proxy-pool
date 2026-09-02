@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import YAML from 'yaml'
 import { buildProxyGroup, LISTENER_TYPES, normalizePortConfig, PORT_STRATEGIES, validatePortConfig } from '../shared/portConfig.js'
@@ -209,6 +209,43 @@ export function syncEmbeddedCore(source, rawOptions = {}) {
   return serializeMutation(async () => {
     const options = defaultOptions(rawOptions), state = await readState(options) || emptyState()
     return persist(source, state, options, true)
+  })
+}
+
+export async function exportEmbeddedCoreState(rawOptions = {}) {
+  const options = defaultOptions(rawOptions)
+  return structuredClone(await readState(options) || emptyState())
+}
+
+export function restoreEmbeddedCoreState(source, rawState, rawOptions = {}) {
+  return serializeMutation(async () => {
+    const options = defaultOptions(rawOptions)
+    if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) throw new Error('恢复数据中的端口配置无效')
+    if (Number(rawState.version || 1) > 2) throw new Error(`端口配置版本 v${rawState.version} 高于当前程序支持的 v2`)
+    const definitions = await resolveDefinitions(source, options)
+    const availableNodeIds = new Set(definitions.map(item => item.id))
+    const nextState = emptyState()
+    for (const [portText, rawItem] of Object.entries(rawState.ports || {})) {
+      const port = Number(portText)
+      if (!Number.isInteger(port) || String(port) !== String(portText)) throw new Error(`恢复数据包含无效端口：${portText}`)
+      nextState.ports[portText] = validatePortConfig({ ...rawItem, port }, {
+        availableNodeIds,
+        portAllowed: value => portAllowed(value, options.portRanges),
+      })
+    }
+    const previousState = await readState(options)
+    const previousConfig = await exists(options.configPath) ? await readFile(options.configPath, 'utf8') : null
+    try {
+      const result = await persist(source, nextState, options, true)
+      return { ports: Object.keys(nextState.ports).length, reloaded: result.reloaded, reloadRequired: result.reloadRequired }
+    } catch (error) {
+      if (previousState) await atomicWrite(options.statePath, `${JSON.stringify(previousState, null, 2)}\n`).catch(() => {})
+      else await unlink(options.statePath).catch(() => {})
+      if (previousConfig !== null) await atomicWrite(options.configPath, previousConfig).catch(() => {})
+      else await unlink(options.configPath).catch(() => {})
+      if (previousConfig !== null) await reloadCore(options).catch(() => {})
+      throw error
+    }
   })
 }
 

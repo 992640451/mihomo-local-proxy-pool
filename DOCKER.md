@@ -58,6 +58,29 @@ After checking the migrated subscriptions, set `SUBSCRIPTION_MODE=native` in
 the Clash Verge files at runtime; keep the `/data`
 volume, which now contains both `subscriptions.sqlite` and `sessions.sqlite`.
 
+## Reliability, backup, and diagnostics
+
+The Operation Log page reads persistent, redacted events from
+`/data/audit.sqlite`. `AUDIT_RETENTION_DAYS` defaults to 30 days and
+`AUDIT_MAX_EVENTS` defaults to 10000 events. Audit data is operational history,
+not part of a configuration recovery package.
+
+System Settings can create a passphrase-encrypted JSON recovery package that
+contains subscriptions, their encrypted-at-rest source material in re-encrypted
+portable form, stable node IDs, and managed port pools. Login sessions and audit
+events are deliberately excluded. A restore validates and decrypts the whole
+package before changing data; if applying the restored Mihomo state fails, the
+service restores the previous subscriptions and port configuration.
+
+The same page checks subscription, session and audit databases, the refresh
+scheduler, Mihomo controller, catalog consistency, and writable storage. Its
+downloadable diagnostics are redacted and safe to inspect before attaching to a
+public issue. Always inspect the file yourself before sharing it.
+
+Cookie-authenticated browser mutations are same-origin checked. Reverse proxies
+that intentionally use a different browser origin must list it in the
+comma-separated `APP_ALLOWED_ORIGINS` setting. Do not use a wildcard.
+
 Management endpoints (all protected by the existing login session) are:
 
 - `GET /api/subscriptions`
