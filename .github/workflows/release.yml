@@ -1,8 +1,6 @@
 name: Release
 
 on:
-  push:
-    tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
       tag:
@@ -19,12 +17,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-  TOOLING_REF: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
+  RELEASE_TAG: ${{ inputs.tag }}
+  TOOLING_REF: ${{ github.sha }}
   RELEASE_NODE_VERSION: 26.8.1
 
 jobs:

@@ -124,6 +124,20 @@ test('checksums include matching SBOM and metadata, exclude the checksum itself'
   assert.equal(await readFile(path.join(root, 'SHA256SUMS.txt'), 'utf8'), checksums)
 })
 
+test('release workflow is manual-only with an explicit tag and a safe publish default', async () => {
+  const workflow = YAML.parse(await readFile('.github/workflows/release.yml', 'utf8'))
+  assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch'])
+  const inputs = workflow.on.workflow_dispatch.inputs
+  assert.equal(inputs.tag.required, true)
+  assert.equal(inputs.tag.type, 'string')
+  assert.equal(inputs.publish.type, 'boolean')
+  assert.equal(inputs.publish.default, false)
+  assert.equal(workflow.concurrency.group, 'release-${{ inputs.tag }}')
+  assert.equal(workflow.concurrency['cancel-in-progress'], false)
+  assert.equal(workflow.env.RELEASE_TAG, '${{ inputs.tag }}')
+  assert.equal(workflow.env.TOOLING_REF, '${{ github.sha }}')
+})
+
 test('release workflow gates publication behind portable and container smoke tests', async () => {
   const workflow = YAML.parse(await readFile('.github/workflows/release.yml', 'utf8'))
   assert.deepEqual(workflow.jobs.release.needs, ['validate', 'build-portable', 'container'])

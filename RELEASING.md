@@ -12,10 +12,13 @@ M2 是路线图阶段名，不是降级版本指令。当前待发布版本为 1
 
 ## 触发与权限
 
-- 推送 `vX.Y.Z` 或 `vX.Y.Z-beta.N` 标签只生成 Draft，不推送 GHCR 或公开 Release。只有标签、包和锁文件版本一致、变更记录非空且全部验证通过才生成制品。
-- 手动运行 Release：填写一个存在的标签；`publish=false` 默认只创建/更新 Draft，**不会登录或推送 GHCR**，但会生成 GitHub 构建证明并保存 CI artifacts。
+- Release 仅支持手动触发（`workflow_dispatch`）。推送包含此配置的版本标签不会启动 Release，也不会自动生成 Draft、推送 GHCR 或公开 Release。
+- 推送版本标签后，在 Actions → Release → Run workflow 中选择包含最新发布配置的分支（通常为 `main`），并填写已存在的标签。只有标签、包和锁文件版本一致、变更记录非空且全部验证通过才生成制品。
+- 手动运行时，`publish=false` 默认只创建/更新 Draft，**不会登录或推送 GHCR**，但会生成 GitHub 构建证明并保存 CI artifacts。
 - 仅手动运行并显式选择 `publish=true` 才发布 GHCR 镜像并将 Release 从 Draft 转为公开。预发布标签保持 prerelease，不强制抢占 latest。
 - 本地运行构建和验证脚本不会发布任何东西。不要把 `.env` 或真实订阅放入构建上下文。
+
+普通 CI 和独立 M2 Acceptance 流程的触发规则保持不变。历史标签中的旧工作流及已有取消记录不会被本次修改重写；新版本标签应指向包含最新发布配置的提交。
 
 手动运行采用所选工作流提交中的发布脚本，源码固定到指定标签的提交；两者可能不同。构建证明记录工作流来源，`.build.json` 记录实际应用源码 SHA。M2 全链路要求目标源码包含构建信息模块与对应 Dockerfile；更老标签请用其兼容版本的工作流，不要给历史二进制伪造新元数据。
 
