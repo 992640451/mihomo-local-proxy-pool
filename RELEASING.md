@@ -1,6 +1,6 @@
 # 发布工程
 
-M2 是路线图阶段名，不是降级版本指令。当前包版本仍为 1.0.0；发布后续功能时使用新的语义化版本，不覆盖已有公开版本。
+M2 是路线图阶段名，不是降级版本指令。当前待发布版本为 1.1.0；后续发布使用新的语义化版本，不覆盖已有公开版本。
 
 ## 发布前准备
 
@@ -53,12 +53,12 @@ M2 是路线图阶段名，不是降级版本指令。当前包版本仍为 1.0.
 npm ci
 npm test
 npm run build
-npm run release:validate -- --tag v1.0.0
+npm run release:validate -- --tag v1.1.0
 npm run portable:package
-node scripts/prepare-release-asset.mjs --source-root . --output .artifacts/verified --version 1.0.0 --platform windows --arch x64 --require-verified-core
+node scripts/prepare-release-asset.mjs --source-root . --output .artifacts/verified --version 1.1.0 --platform windows --arch x64 --require-verified-core
 node scripts/create-checksums.mjs --directory .artifacts/verified --expected 1
 npm run docker:update
-node scripts/smoke-container.mjs --image proxy-port-manager:1.0.0 --version 1.0.0
+node scripts/smoke-container.mjs --image proxy-port-manager:1.1.0 --version 1.1.0
 ```
 
 按实际版本及宿主平台调整参数；平台名为 `windows`、`linux`、`macos`。`portable:package` 要求 Web 构建已完成。`--core` 可供本地定制构建，但不标记为清单验证，公开发布门禁会拒绝该包。源码模式缺少 `build-info.json` 时显示“未注入”，不会把启动时间冒充构建时间。

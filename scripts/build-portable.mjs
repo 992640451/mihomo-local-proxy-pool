@@ -3,6 +3,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { fetchMihomo } from './fetch-mihomo.mjs'
+import { tarCommand } from './archive-tools.mjs'
 import { buildMetadata, capture, executableComponent, extendSbom, writeJson } from './build-metadata.mjs'
 
 const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -102,8 +103,8 @@ async function main() {
   await writeJson(path.join(stage, 'sbom.cdx.json'), extendSbom(npmBom, metadata, natives))
   await writeJson(`${archive}.build.json`, metadata)
   await cp(path.join(stage, 'sbom.cdx.json'), `${archive}.cdx.json`)
-  if (process.platform === 'win32') run('tar.exe', ['-a', '-cf', archive, '-C', outputRoot, name])
-  else run('tar', ['-czf', archive, '-C', outputRoot, name])
+  if (process.platform === 'win32') run(tarCommand(), ['-a', '-cf', archive, '-C', outputRoot, name])
+  else run(tarCommand(), ['-czf', archive, '-C', outputRoot, name])
   console.log(`便携包已生成：${archive}`)
 }
 

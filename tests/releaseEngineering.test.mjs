@@ -12,6 +12,7 @@ import { verifyMihomoArchive } from '../scripts/fetch-mihomo.mjs'
 import { smokeEnvironment } from '../scripts/smoke-portable.mjs'
 import { isMissingManifest } from '../scripts/assert-image-unpublished.mjs'
 import { imagePlatforms, verifyPredicates } from '../scripts/verify-image-attestations.mjs'
+import { tarCommand } from '../scripts/archive-tools.mjs'
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ppm-release-tests-'))
@@ -19,6 +20,27 @@ async function fixture(t) {
   await writeJson(path.join(root, 'package.json'), { version: '1.2.3' })
   return root
 }
+
+test('Windows archives use system bsdtar regardless of Git Bash PATH precedence', () => {
+  assert.equal(tarCommand('win32', { SystemRoot: 'D:\\Windows', PATH: 'C:\\Program Files\\Git\\usr\\bin' }), 'D:\\Windows\\System32\\tar.exe')
+  assert.equal(tarCommand('win32', { SYSTEMROOT: 'C:\\Windows' }), 'C:\\Windows\\System32\\tar.exe')
+  assert.throws(() => tarCommand('win32', {}), /系统归档工具/)
+  assert.throws(() => tarCommand('win32', { SystemRoot: 'relative' }), /系统归档工具/)
+  assert.equal(tarCommand('linux', {}), 'tar')
+  assert.equal(tarCommand('darwin', {}), 'tar')
+})
+
+test('Windows system tar round-trips an absolute drive-letter ZIP without PATH lookup', { skip: process.platform !== 'win32' }, async t => {
+  const root = await fixture(t)
+  const archive = path.join(root, 'archive.zip')
+  await writeFile(path.join(root, 'payload.txt'), 'archive regression')
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'path'))
+  env.Path = root
+  const tar = tarCommand()
+  capture(tar, ['-a', '-cf', archive, '-C', root, 'payload.txt'], { env })
+  assert.equal(capture(tar, ['-tf', archive], { env }), 'payload.txt')
+  assert.equal(capture(tar, ['-xOf', archive, 'payload.txt'], { env }), 'archive regression')
+})
 
 test('validates and exposes only versioned, non-sensitive build metadata', async t => {
   const root = await fixture(t)

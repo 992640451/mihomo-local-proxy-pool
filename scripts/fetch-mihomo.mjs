@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
+import { tarCommand } from './archive-tools.mjs'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -59,7 +60,7 @@ export async function fetchMihomo({
     try {
       const archiveFile = path.join(temporary, target.archive)
       await writeFile(archiveFile, archive)
-      run(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-xf', archiveFile, '-C', temporary])
+      run(tarCommand(), ['-xf', archiveFile, '-C', temporary])
       const executable = await findExecutable(temporary, platform)
       if (!executable) throw new Error('Mihomo 压缩包中没有可执行文件')
       await writeFile(outputFile, await readFile(executable), { mode: 0o755 })

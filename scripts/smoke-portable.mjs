@@ -8,6 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { capture } from './build-metadata.mjs'
 import { argument } from './release-utils.mjs'
+import { tarCommand } from './archive-tools.mjs'
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -30,7 +31,7 @@ export async function smokePortable(archiveFile, { expectedVersion, expectedRevi
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'ppm-release-smoke-'))
   let child, exited, env, node, entry, root
   try {
-    const tar = process.platform === 'win32' ? 'tar.exe' : 'tar'
+    const tar = tarCommand()
     const entries = capture(tar, ['-tf', path.resolve(archiveFile)]).split(/\r?\n/)
     if (entries.some(name => /^[\\/]|^[A-Za-z]:|(^|[\\/])\.\.([\\/]|$)/.test(name))) throw new Error('不安全的归档路径')
     capture(tar, ['-xf', path.resolve(archiveFile), '-C', temporary])
