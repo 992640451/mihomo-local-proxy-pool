@@ -25,14 +25,17 @@ export class DiagnosticService {
     subscriptionStore,
     subscriptionService,
     sessionStore,
+    tokenStore,
     auditStore,
+    observationStore,
+    observationService,
     embeddedCore = false,
     embeddedCoreStatus,
     loadLiveCatalog,
     dataFiles = [],
     deploymentMode = 'source',
   } = {}) {
-    Object.assign(this, { appVersion, startedAt, subscriptionStore, subscriptionService, sessionStore, auditStore, embeddedCore, embeddedCoreStatus, loadLiveCatalog, dataFiles, deploymentMode })
+    Object.assign(this, { appVersion, startedAt, subscriptionStore, subscriptionService, sessionStore, tokenStore, auditStore, observationStore, observationService, embeddedCore, embeddedCoreStatus, loadLiveCatalog, dataFiles, deploymentMode })
   }
 
   async run() {
@@ -42,7 +45,13 @@ export class DiagnosticService {
       return { enabled: true, ...this.subscriptionStore.health() }
     }))
     checks.push(await capture('sessionDatabase', () => this.sessionStore.health()))
+    if (this.tokenStore) checks.push(await capture('apiTokenDatabase', () => this.tokenStore.health()))
     checks.push(await capture('auditDatabase', () => this.auditStore.health()))
+    if (this.observationStore) checks.push(await capture('observationDatabase', () => this.observationStore.health()))
+    if (this.observationService) checks.push(await capture('observationScheduler', () => {
+      const { settings, running, schedulerRunning, nextRunAt } = this.observationService.status()
+      return { enabled: settings.enabled, running, schedulerRunning, nextRunAt }
+    }))
     checks.push(await capture('subscriptionScheduler', () => this.subscriptionService
       ? { enabled: true, ...this.subscriptionService.schedulerStatus() }
       : { enabled: false }))

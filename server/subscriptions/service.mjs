@@ -141,9 +141,16 @@ export class SubscriptionService {
         if (!item.enabled || item.sourceType !== 'url' || this.refreshing.has(item.id)) continue
         const base = item.lastAttemptAt || item.lastSuccessAt || item.createdAt
         if (timestamp - base >= item.refreshIntervalSeconds * 1000) {
-          this.refresh(item.id)
-            .then(subscription => this.onScheduledRefresh?.({ ok: true, subscription }))
-            .catch(error => this.onScheduledRefresh?.({ ok: false, subscription: item, error }))
+          const operation = async () => {
+            try {
+              const subscription = await this.refresh(item.id)
+              await this.onScheduledRefresh?.({ ok: true, subscription })
+            } catch (error) { await this.onScheduledRefresh?.({ ok: false, subscription: item, error }) }
+          }
+          // Include the core reload in the lease, not just the download.
+          Promise.resolve(this.runScheduledRefresh ? this.runScheduledRefresh(operation) : operation()).catch(error => {
+            if (error.code !== 'RECOVERY_IN_PROGRESS') console.error('subscription scheduler operation failed')
+          })
         }
       }
     }

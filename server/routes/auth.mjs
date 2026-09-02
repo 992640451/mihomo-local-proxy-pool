@@ -24,6 +24,7 @@ export function registerAuthRoutes(app, {
   cookieName = 'ppm_session',
   cookieSecure = false,
   auditStore,
+  tokenStore,
 } = {}) {
   const attempts = new Map()
 
@@ -48,9 +49,20 @@ export function registerAuthRoutes(app, {
   }
 
   function requireAuth(req, res, next) {
-    if (!configured) { req.auth = { username: 'local-admin' }; return next() }
+    const versioned = /^\/api\/v1(?:\/|\?|$)/i.test(req.originalUrl)
+    if (req.headers.authorization !== undefined) {
+      const match = /^Bearer (\S+)$/i.exec(req.headers.authorization)
+      const token = configured && versioned && match ? tokenStore?.authenticate(match[1]) : null
+      if (!token) return apiError(req, res, { status: 401, code: 'INVALID_API_TOKEN', message: 'API 令牌无效、已过期、已撤销或接口不支持令牌认证' })
+      req.auth = { type: 'token', username: `api/${token.id}`, tokenId: token.id, scopes: token.scopes }
+      return next()
+    }
+    if (!configured) {
+      if (versioned) return apiError(req, res, { status: 503, code: 'AUTH_NOT_CONFIGURED', message: '自动化 API 需要先配置管理认证' })
+      req.auth = { type: 'local', username: 'local-admin' }; return next()
+    }
     const found = findSession(req, true)
-    if (found) { req.auth = { username: found.session.username }; return next() }
+    if (found) { req.auth = { type: 'session', username: found.session.username }; return next() }
     res.set('Set-Cookie', cookieHeader(req, '', 0))
     return apiError(req, res, { status: 401, code: 'AUTH_REQUIRED', message: '需要登录' })
   }

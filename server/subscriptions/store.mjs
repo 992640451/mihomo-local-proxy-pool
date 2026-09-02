@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { hasColumn, openMigratedDatabase } from '../database/migrations.mjs'
 import { SecretBox } from './crypto.mjs'
+import { redactText } from '../security/redaction.mjs'
 
 function now() { return Date.now() }
 function bool(value) { return value ? 1 : 0 }
@@ -79,7 +80,7 @@ export class SubscriptionStore {
       priority: Number(row.priority || 0),
       refreshIntervalSeconds: row.refresh_interval_seconds, etag: row.etag, lastModified: row.last_modified,
       activeSnapshotId: row.active_snapshot_id, lastAttemptAt: row.last_attempt_at, lastSuccessAt: row.last_success_at,
-      lastError: row.last_error, createdAt: row.created_at, updatedAt: row.updated_at,
+      lastError: row.last_error ? redactText(row.last_error) : null, createdAt: row.created_at, updatedAt: row.updated_at,
       nodeCount: Number(this.db.prepare('SELECT count(*) count FROM subscription_nodes WHERE subscription_id=? AND active=1').get(row.id).count),
     }
   }
@@ -140,7 +141,7 @@ export class SubscriptionStore {
       WHERE 1=1 ${includeDisabled ? '' : 'AND s.enabled=1'} ${includeOrphaned ? '' : 'AND n.active=1'} ORDER BY s.priority DESC,s.created_at,n.created_at`).all()
     return rows.map(row => ({
       id: row.id, providerId: row.subscription_id, provider: row.provider,
-      raw: JSON.parse(this.box.decrypt(row.raw_encrypted)), active: Boolean(row.active),
+      raw: JSON.parse(this.box.decrypt(row.raw_encrypted)), active: Boolean(row.active), subscriptionEnabled: Boolean(row.subscription_enabled),
     }))
   }
 
@@ -251,6 +252,8 @@ export class SubscriptionStore {
 export function maskUrl(raw) {
   try {
     const url = new URL(raw)
+    url.username = ''; url.password = ''
+    if (url.hash) url.hash = '#***'
     const keys = [...url.searchParams.keys()]
     for (const key of keys) url.searchParams.set(key, '***')
     const parts = url.pathname.split('/')

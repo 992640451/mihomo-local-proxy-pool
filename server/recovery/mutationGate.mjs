@@ -19,5 +19,10 @@ export function createMutationGate() {
     }
   }
   // Declare the operation on its handler, not on a separately parsed URL.
-  return { mutation: handler => wrap(handler, false), restore: handler => wrap(handler, true) }
+  const runMutation = async operation => {
+    if (restoring) throw Object.assign(new Error('配置恢复正在执行，请稍后重试'), { status: 409, code: 'RECOVERY_IN_PROGRESS' })
+    activeMutations += 1
+    try { return await operation() } finally { activeMutations -= 1 }
+  }
+  return { mutation: handler => wrap(handler, false), restore: handler => wrap(handler, true), runMutation }
 }

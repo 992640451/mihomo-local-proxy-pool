@@ -163,3 +163,17 @@ test('restores a validated embedded-core state and rejects missing node referenc
   }, options), /节点不存在/)
   assert.deepEqual(await exportEmbeddedCoreState(options), original)
 })
+
+test('loads active unassigned nodes for measurement without creating extra listeners', async () => {
+  const f = await fixture()
+  const definitions = [
+    { id: 'fresh', active: true, subscriptionEnabled: true, raw: { name: 'fresh', type: 'http', server: 'example.com', port: 443 } },
+    { id: 'disabled', active: true, subscriptionEnabled: false, raw: { name: 'disabled', type: 'http', server: 'example.com', port: 443 } },
+    { id: 'orphan', active: false, subscriptionEnabled: true, raw: { name: 'orphan', type: 'http', server: 'example.com', port: 443 } },
+  ]
+  await ensureEmbeddedCore(f.root, { statePath: f.statePath, configPath: f.configPath, controllerUrl: '', definitionProvider: () => definitions })
+  const config = YAML.parse(await readFile(f.configPath, 'utf8'))
+  assert.deepEqual(config.proxies.map(proxy => proxy.name), ['ppm-node-fresh'])
+  assert.deepEqual(config.listeners, [])
+  assert.deepEqual(config['proxy-groups'], [])
+})

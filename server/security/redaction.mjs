@@ -31,6 +31,7 @@ export function redactText(value) {
   let text = String(value ?? '')
   text = text.replace(URL_PATTERN, match => redactUrl(match))
   text = text.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 ***')
+  text = text.replace(/\bppm_[A-Za-z0-9_-]{43}\b/g, '<redacted-api-credential>')
   text = text.replace(/\b(password|passwd|secret|token|api[-_]?key)\s*[:=]\s*([^\s,;]+)/gi, '$1=***')
   const homePaths = [process.env.USERPROFILE, process.env.HOME]
     .filter(Boolean)

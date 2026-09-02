@@ -135,6 +135,13 @@ async function migrateState(source, definitions) {
 function buildConfig(state, definitions, options) {
   const byId = new Map(definitions.map(item => [item.id, item]))
   const proxies = new Map(), proxyGroups = [], listeners = []
+  // Make enabled subscription nodes measurable before they are assigned to a port.
+  // Merely loading a proxy does not create a listener or trigger a health check.
+  for (const definition of definitions) {
+    if (definition.active === false || definition.subscriptionEnabled === false) continue
+    const name = `ppm-node-${definition.id}`
+    proxies.set(name, { ...definition.raw, name })
+  }
   for (const [portText, rawItem] of Object.entries(state.ports).sort(([a], [b]) => Number(a) - Number(b))) {
     const item = normalizePortConfig({ ...rawItem, port: Number(portText) })
     if (!item.enabled) continue
@@ -177,6 +184,7 @@ async function reloadCore(options) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...(options.controllerSecret ? { Authorization: `Bearer ${options.controllerSecret}` } : {}) },
     body: JSON.stringify({ path: options.controllerConfigPath }),
+    signal: AbortSignal.timeout(10000),
   })
   if (!response.ok) throw new Error(`Mihomo 核心重载失败：HTTP ${response.status} ${await response.text()}`)
   return { reloaded: true, reloadRequired: false }
@@ -217,22 +225,26 @@ export async function exportEmbeddedCoreState(rawOptions = {}) {
   return structuredClone(await readState(options) || emptyState())
 }
 
+// Pure validation shared by dry-run and actual restoration. No files or core calls.
+export function validateEmbeddedCoreState(rawState, availableNodeIds, rawOptions = {}) {
+  const options = defaultOptions(rawOptions)
+  if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState) || !rawState.ports || typeof rawState.ports !== 'object' || Array.isArray(rawState.ports)) throw new Error('恢复数据中的端口配置无效')
+  if (![1, 2].includes(Number(rawState.version || 1))) throw new Error(`端口配置版本 v${rawState.version} 不受支持`)
+  const nextState = emptyState()
+  for (const [portText, rawItem] of Object.entries(rawState.ports)) {
+    const port = Number(portText)
+    if (!Number.isInteger(port) || String(port) !== portText || !rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) throw new Error(`恢复数据包含无效端口：${portText}`)
+    nextState.ports[portText] = validatePortConfig({ ...rawItem, port }, { availableNodeIds, portAllowed: value => portAllowed(value, options.portRanges) })
+  }
+  return nextState
+}
+
 export function restoreEmbeddedCoreState(source, rawState, rawOptions = {}) {
   return serializeMutation(async () => {
     const options = defaultOptions(rawOptions)
-    if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) throw new Error('恢复数据中的端口配置无效')
-    if (Number(rawState.version || 1) > 2) throw new Error(`端口配置版本 v${rawState.version} 高于当前程序支持的 v2`)
     const definitions = await resolveDefinitions(source, options)
     const availableNodeIds = new Set(definitions.map(item => item.id))
-    const nextState = emptyState()
-    for (const [portText, rawItem] of Object.entries(rawState.ports || {})) {
-      const port = Number(portText)
-      if (!Number.isInteger(port) || String(port) !== String(portText)) throw new Error(`恢复数据包含无效端口：${portText}`)
-      nextState.ports[portText] = validatePortConfig({ ...rawItem, port }, {
-        availableNodeIds,
-        portAllowed: value => portAllowed(value, options.portRanges),
-      })
-    }
+    const nextState = validateEmbeddedCoreState(rawState, availableNodeIds, options)
     const previousState = await readState(options)
     const previousConfig = await exists(options.configPath) ? await readFile(options.configPath, 'utf8') : null
     try {
@@ -332,7 +344,7 @@ export async function embeddedCoreStatus(rawOptions = {}) {
   const options = defaultOptions(rawOptions)
   if (!options.controllerUrl) return { enabled: true, reachable: false, version: null }
   try {
-    const response = await fetch(`${options.controllerUrl.replace(/\/$/, '')}/version`, { headers: options.controllerSecret ? { Authorization: `Bearer ${options.controllerSecret}` } : {} })
+    const response = await fetch(`${options.controllerUrl.replace(/\/$/, '')}/version`, { headers: options.controllerSecret ? { Authorization: `Bearer ${options.controllerSecret}` } : {}, signal: AbortSignal.timeout(3000) })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const body = await response.json()
     return { enabled: true, reachable: true, version: body.version || null, meta: body.meta === true }
@@ -342,6 +354,7 @@ export async function embeddedCoreStatus(rawOptions = {}) {
 async function controllerJson(options, pathname) {
   const response = await fetch(`${options.controllerUrl.replace(/\/$/, '')}${pathname}`, {
     headers: options.controllerSecret ? { Authorization: `Bearer ${options.controllerSecret}` } : {},
+    signal: AbortSignal.timeout(5000),
   })
   if (!response.ok) throw new Error(`Mihomo Controller 返回 HTTP ${response.status}`)
   return response.json()

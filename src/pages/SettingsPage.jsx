@@ -2,6 +2,7 @@ import { useState } from "react";
 import { RECOVERY_MAX_FILE_BYTES } from "../../shared/recoveryLimits.js";
 import { apiErrorMessage, apiFetch } from "../api.js";
 import { PageHead, Select, formatDuration } from "../components/ui.jsx";
+import { ApiTokenPanel } from "../components/ApiTokenPanel.jsx";
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob), anchor = document.createElement("a");
@@ -12,6 +13,8 @@ function datedName(prefix) { return `${prefix}-${new Date().toISOString().replac
 
 const CHECK_LABELS = {
   subscriptionDatabase: "订阅数据库", sessionDatabase: "会话数据库", auditDatabase: "审计数据库",
+  observationDatabase: "检测历史数据库", observationScheduler: "后台检测调度器",
+  apiTokenDatabase: "API 令牌数据库",
   subscriptionScheduler: "订阅调度器", mihomoCore: "Mihomo 核心", catalog: "配置目录", storage: "数据存储",
 };
 
@@ -46,7 +49,7 @@ export function SettingsPage({ runtime, refreshSeconds, setRefreshSeconds, reset
     if (exportPassword !== exportConfirmation) return setError("两次输入的恢复包口令不一致。");
     setBackupBusy(true);
     try {
-      const response = await apiFetch("/recovery/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: exportPassword }) });
+      const response = await apiFetch("/config/export", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: exportPassword }) });
       if (!response.ok) throw new Error(apiErrorMessage(await response.json(), "恢复包创建失败"));
       downloadBlob(await response.blob(), datedName("ppm-recovery"));
       setExportPassword(""); setExportConfirmation(""); setMessage("加密恢复包已下载，请把文件和口令分开保存。");
@@ -62,30 +65,30 @@ export function SettingsPage({ runtime, refreshSeconds, setRefreshSeconds, reset
     setRestoreBusy(true); setError(""); setMessage(""); setRestoreSummary(null);
     try {
       const recoveryPackage = await readRecoveryPackage();
-      const response = await apiFetch("/recovery/inspect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recoveryPackage, password: restorePassword }) });
+      const response = await apiFetch("/config/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recoveryPackage, password: restorePassword }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(apiErrorMessage(payload, "恢复包校验失败"));
-      setRestoreSummary(payload); setMessage("恢复包校验通过，确认内容后可执行恢复。");
+      setRestoreSummary(payload); setMessage(payload.canApply ? "预检完成。请核对增改删明细；计划 10 分钟内有效，配置变化后必须重新预检。" : "预检发现阻塞问题，不能应用此恢复包。");
     } catch (reason) { setError(reason.message); }
     finally { setRestoreBusy(false); }
   };
   const restoreRecovery = async () => {
-    if (!restoreSummary) return setError("请先校验恢复包。");
-    if (!window.confirm(`恢复将替换当前 ${restoreSummary.subscriptions} 个订阅和 ${restoreSummary.ports} 个端口配置。是否继续？`)) return;
+    if (!restoreSummary?.canApply) return setError("请先完成恢复包预检。");
+    if (!window.confirm(`恢复将替换当前配置为恢复包中的 ${restoreSummary.subscriptions} 个订阅和 ${restoreSummary.ports} 个端口。未包含的资源将删除。是否继续？`)) return;
     setRestoreBusy(true); setError(""); setMessage("");
     try {
       const recoveryPackage = await readRecoveryPackage();
-      const response = await apiFetch("/recovery/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recoveryPackage, password: restorePassword }) });
+      const response = await apiFetch("/config/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ recoveryPackage, password: restorePassword, planToken: restoreSummary.planToken }) });
       const payload = await response.json();
-      if (!response.ok) throw new Error(apiErrorMessage(payload, "恢复失败"));
+      if (!response.ok) { setRestoreSummary(null); throw new Error(apiErrorMessage(payload, "恢复失败")); }
       setRestoreSummary(null); setRestoreFile(null); setRestorePassword(""); await onRecovered?.();
       setMessage(`恢复完成：${payload.subscriptions} 个订阅、${payload.ports} 个端口。`);
     } catch (reason) { setError(reason.message); }
     finally { setRestoreBusy(false); }
   };
 
-  return <div className="page-stack">
-    <PageHead eyebrow="SYSTEM SETTINGS" title="系统设置" description="管理界面刷新、运行诊断和加密备份恢复。" />
+  return <div className="page-stack automation-page">
+    <PageHead eyebrow="SYSTEM SETTINGS" title="系统设置" description="管理界面刷新、运行诊断、自动化权限和加密备份恢复。" />
     {(error || message) && <div className={error ? "subscription-error" : "subscription-preview reliability-message"}>{error || message}</div>}
     <section className="data-card settings-card">
       <label className="setting-row"><span><strong>界面数据自动刷新</strong><small>仅刷新管理界面；订阅的服务端刷新周期在订阅页单独设置</small></span><Select value={String(refreshSeconds)} onChange={(value) => setRefreshSeconds(Number(value))}><option value="0">关闭</option><option value="30">30 秒</option><option value="60">1 分钟</option><option value="300">5 分钟</option></Select></label>
@@ -95,12 +98,18 @@ export function SettingsPage({ runtime, refreshSeconds, setRefreshSeconds, reset
     <section className="data-card reliability-card"><div className="reliability-head"><div><span className="eyebrow">DIAGNOSTICS</span><h2>系统诊断</h2><p>检查数据库、订阅调度器、Mihomo、端口配置和数据目录。</p></div><div className="page-actions"><button className="button ghost" disabled={diagnosticBusy} onClick={runDiagnostics}>{diagnosticBusy ? "检查中…" : "运行诊断"}</button><button className="button primary" disabled={diagnosticBusy} onClick={exportDiagnostics}>导出脱敏诊断</button></div></div>
       {diagnostics && <div className="diagnostic-list">{diagnostics.checks.map((check) => <div className={`diagnostic-row ${check.status}`} key={check.name}><span className="status-dot" /><strong>{CHECK_LABELS[check.name] || check.name}</strong><small>{check.message || (check.status === "ok" ? "检查通过" : "需要关注")}</small><code>{check.durationMs} ms</code></div>)}</div>}
     </section>
-    <section className="data-card reliability-card"><div className="reliability-head"><div><span className="eyebrow">ENCRYPTED BACKUP</span><h2>备份当前配置</h2><p>恢复包包含订阅、节点凭据和端口池，使用口令加密；不包含登录会话与审计日志。</p></div></div><div className="recovery-form two-columns">
+    <ApiTokenPanel />
+    <section className="data-card reliability-card"><div className="reliability-head"><div><span className="eyebrow">ENCRYPTED BACKUP</span><h2>备份当前配置</h2><p>恢复包包含订阅、节点凭据和端口池，使用口令加密；不包含登录会话、API 令牌、审计日志或检测历史与调度设置。</p></div></div><div className="recovery-form two-columns">
       <label><span>恢复包口令</span><input type="password" autoComplete="new-password" value={exportPassword} onChange={(event) => setExportPassword(event.target.value)} /></label><label><span>确认口令</span><input type="password" autoComplete="new-password" value={exportConfirmation} onChange={(event) => setExportConfirmation(event.target.value)} /></label><button className="button primary" disabled={backupBusy} onClick={exportRecovery}>{backupBusy ? "正在加密…" : "下载加密恢复包"}</button>
     </div></section>
     <section className="data-card reliability-card danger-zone"><div className="reliability-head"><div><span className="eyebrow">RESTORE</span><h2>恢复配置</h2><p>恢复前会完整校验文件；应用失败时自动恢复当前订阅和端口配置。</p></div></div><div className="recovery-form">
       <label><span>恢复包文件</span><input type="file" accept="application/json,.json" onChange={(event) => { setRestoreFile(event.target.files?.[0] || null); setRestoreSummary(null); }} /></label><label><span>恢复包口令</span><input type="password" autoComplete="current-password" value={restorePassword} onChange={(event) => { setRestorePassword(event.target.value); setRestoreSummary(null); }} /></label>
-      {restoreSummary && <div className="recovery-summary">版本 {restoreSummary.appVersion} · {restoreSummary.subscriptions} 个订阅 · {restoreSummary.nodes} 个节点 · {restoreSummary.ports} 个端口</div>}<div className="page-actions"><button className="button ghost" disabled={restoreBusy} onClick={inspectRecovery}>{restoreBusy ? "校验中…" : "校验恢复包"}</button><button className="button danger" disabled={restoreBusy || !restoreSummary} onClick={restoreRecovery}>替换并恢复</button></div>
+      {restoreSummary && <div className="recovery-summary"><p>版本 {restoreSummary.appVersion} · {restoreSummary.subscriptions} 个订阅 · {restoreSummary.nodes} 个节点 · {restoreSummary.ports} 个端口</p>
+        {Object.entries(restoreSummary.changes).map(([kind, change]) => <details key={kind}><summary>{{ subscriptions: '订阅', nodes: '节点', ports: '端口' }[kind]}：新增 {change.added.length} / 修改 {change.modified.length} / 删除 {change.deleted.length} / 不变 {change.unchanged}</summary>{['added', 'modified', 'deleted'].map(action => <p className="automation-diff" key={action}>{{ added: '新增', modified: '修改', deleted: '删除' }[action]} ID：{change[action].slice(0, 100).join(', ') || '无'}{change[action].length > 100 ? '（界面仅显示前 100 项，完整列表请使用 CLI）' : ''}</p>)}</details>)}
+        {restoreSummary.missingNodes.map(item => <p key={item.port}>阻塞：端口 {item.port} 引用缺失节点 {item.nodeIds.join(', ')}</p>)}
+        {restoreSummary.unavailableNodes.map(item => <p key={item.port}>提醒：端口 {item.port} 引用已停用订阅或孤立节点 {item.nodeIds.join(', ')}</p>)}
+        {restoreSummary.errors.map((item, index) => <p key={index}>{item}</p>)}
+      </div>}<div className="page-actions"><button className="button ghost" disabled={restoreBusy} onClick={inspectRecovery}>{restoreBusy ? "处理中…" : "预检恢复变更"}</button><button className="button danger" disabled={restoreBusy || !restoreSummary?.canApply} onClick={restoreRecovery}>替换并恢复</button></div>
     </div></section>
     <section className="data-card"><h2>运行环境</h2><dl className="detail-list">
       <div><dt>应用版本</dt><dd>{runtime.appVersion || "unknown"}</dd></div>

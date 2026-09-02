@@ -23,7 +23,7 @@ export function buildNativeCatalog(subscriptions, definitions) {
   const active = definitions.filter(item => item.active !== false)
   const nodes = active.map(item => {
     const name = String(item.raw?.name || ''), geo = classifyCountry(name)
-    return { id: item.id, providerId: item.providerId, provider: item.provider, name, city: geo.country, ...geo, delay: null, healthy: true }
+    return { id: item.id, providerId: item.providerId, provider: item.provider, name, city: geo.country, ...geo, delay: null, healthy: null }
   })
   const countries = [...new Map(nodes.map(node => [node.code, { name: node.country, code: node.code, flag: node.flag, count: 0 }])).values()]
   countries.forEach(country => { country.count = nodes.filter(node => node.code === country.code).length })
@@ -48,7 +48,7 @@ async function loadVergeCatalog(configDir) {
       if (!raw?.name) continue
       const geo = classifyCountry(String(raw.name))
       const hash = createHash('sha1').update(`${profile.uid}:${raw.name}`).digest('hex')
-      nodes.push({ id: hash.slice(0, 16), providerId: profile.uid, provider: profile.name, name: String(raw.name), city: geo.country, ...geo, delay: null, healthy: true })
+      nodes.push({ id: hash.slice(0, 16), providerId: profile.uid, provider: profile.name, name: String(raw.name), city: geo.country, ...geo, delay: null, healthy: null })
     }
   }
   const countries = [...new Map(nodes.map(n => [n.code, { name: n.country, code: n.code, flag: n.flag, count: 0 }])).values()]
@@ -105,7 +105,7 @@ async function loadMihomoCatalog(configPath) {
   const nodes = (doc.proxies || []).filter(raw => raw?.name).map(raw => {
     const name = String(raw.name), geo = classifyCountry(name)
     const id = createHash('sha1').update(`mihomo:${name}`).digest('hex').slice(0, 16)
-    return { id, providerId: 'mihomo-local', provider, name, city: geo.country, ...geo, delay: null, healthy: true }
+    return { id, providerId: 'mihomo-local', provider, name, city: geo.country, ...geo, delay: null, healthy: null }
   })
   const listeners = listenersFromDocument(doc, nodes)
   const countries = [...new Map(nodes.map(n => [n.code, { name: n.country, code: n.code, flag: n.flag, count: 0 }])).values()]

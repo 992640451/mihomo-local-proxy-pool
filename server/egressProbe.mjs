@@ -1,4 +1,4 @@
-import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { ProxyAgent, Socks5ProxyAgent, buildConnector, fetch as undiciFetch } from 'undici'
 
 const regionNames = new Intl.DisplayNames(['zh-CN'], { type: 'region' })
 
@@ -17,30 +17,52 @@ export function normalizeEgressPayload(payload = {}) {
   }
 }
 
-export async function probeProxyEgress({ host, port, lookupUrl = process.env.EGRESS_LOOKUP_URL || 'https://ipwho.is/', timeoutMs = 10000 }) {
+export async function probeProxyEgress({ host, port, protocol = 'Mixed', lookupUrl = process.env.EGRESS_LOOKUP_URL || 'https://ipwho.is/', timeoutMs = 10000, signal }) {
   const numericPort = Number(port)
   if (!host || !Number.isInteger(numericPort) || numericPort < 1 || numericPort > 65535) throw new Error('出口检测代理地址无效')
-  const dispatcher = new ProxyAgent(`http://${host}:${numericPort}`)
+  const proxyHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+  const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
+  const connector = buildConnector({ timeout: timeoutMs })
+  const dispatcher = String(protocol).toUpperCase() === 'SOCKS5'
+    ? new Socks5ProxyAgent(`socks5://${proxyHost}:${numericPort}`, { connect(options, callback) {
+      const socket = connector(options, callback)
+      // Abort the handshake socket too, not just the HTTP request waiting for it.
+      const abort = () => socket.destroy(requestSignal.reason)
+      requestSignal.addEventListener('abort', abort, { once: true })
+      socket.once('close', () => requestSignal.removeEventListener('abort', abort))
+      if (requestSignal.aborted) abort()
+      return socket
+    } })
+    : new ProxyAgent(`http://${proxyHost}:${numericPort}`)
   const started = Date.now()
   try {
-    const response = await undiciFetch(lookupUrl, { dispatcher, signal: AbortSignal.timeout(timeoutMs), headers: { Accept: 'application/json' } })
+    const response = await undiciFetch(lookupUrl, { dispatcher, signal: requestSignal, headers: { Accept: 'application/json' } })
     if (!response.ok) throw new Error(`出口地理信息查询失败：HTTP ${response.status}`)
-    return { ...normalizeEgressPayload(await response.json()), latencyMs: Date.now() - started, checkedAt: new Date().toISOString() }
+    let size = 0
+    const chunks = []
+    for await (const chunk of response.body) {
+      size += chunk.length
+      if (size > 65536) throw new Error('出口查询响应过大')
+      chunks.push(chunk)
+    }
+    return { ...normalizeEgressPayload(JSON.parse(Buffer.concat(chunks).toString('utf8'))), latencyMs: Date.now() - started, checkedAt: new Date().toISOString() }
   } finally {
-    await dispatcher.close()
+    await dispatcher.destroy()
   }
 }
 
-export async function verifyProxyPool({ host, port, attempts = 8, probe = probeProxyEgress }) {
+export async function verifyProxyPool({ host, port, protocol = 'Mixed', attempts = 8, timeoutMs = 10000, signal, probe = probeProxyEgress }) {
   const numericAttempts = Number(attempts)
   if (!Number.isInteger(numericAttempts) || numericAttempts < 2 || numericAttempts > 20) throw new Error('轮询验证次数必须是 2–20 的整数')
   const samples = []
   for (let attempt = 1; attempt <= numericAttempts; attempt += 1) {
+    signal?.throwIfAborted()
     const started = Date.now()
     try {
-      const result = await probe({ host, port })
+      const result = await probe({ host, port, protocol, timeoutMs, signal })
       samples.push({ attempt, ok: true, ...result })
     } catch (error) {
+      signal?.throwIfAborted()
       samples.push({ attempt, ok: false, error: error.message, latencyMs: Date.now() - started, checkedAt: new Date().toISOString() })
     }
   }

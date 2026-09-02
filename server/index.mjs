@@ -8,7 +8,7 @@ import { buildNativeCatalog, defaultConfigDir, loadSubscriptionCatalog } from '.
 import { applyMihomoPort, deleteMihomoPort } from './mihomoConfig.mjs'
 import { probeProxyEgress, verifyProxyPool } from './egressProbe.mjs'
 import { createCredentialVersion, SessionStore } from './sessionStore.mjs'
-import { applyEmbeddedPort, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, exportEmbeddedCoreState, isEmbeddedCoreEnabled, restoreEmbeddedCoreState, syncEmbeddedCore } from './embeddedCore.mjs'
+import { applyEmbeddedPort, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, exportEmbeddedCoreState, isEmbeddedCoreEnabled, restoreEmbeddedCoreState, syncEmbeddedCore, validateEmbeddedCoreState } from './embeddedCore.mjs'
 import { SubscriptionStore } from './subscriptions/store.mjs'
 import { SubscriptionService } from './subscriptions/service.mjs'
 import { requestContext } from './http/requestContext.mjs'
@@ -24,6 +24,14 @@ import { createMutationGate } from './recovery/mutationGate.mjs'
 import { RECOVERY_MAX_REQUEST_BYTES } from '../shared/recoveryLimits.js'
 import { createOriginGuard, securityHeaders } from './security/http.mjs'
 import { readBuildInfo } from './runtime/buildInfo.mjs'
+import { ObservationStore } from './observability/store.mjs'
+import { ObservationController } from './observability/controller.mjs'
+import { ObservationService } from './observability/service.mjs'
+import { registerObservationRoutes } from './routes/observability.mjs'
+import { ApiTokenStore } from './automation/tokenStore.mjs'
+import { versionedRegistrar } from './automation/versioned.mjs'
+import { registerTokenRoutes } from './routes/tokens.mjs'
+import { registerAutomationRoutes } from './routes/automation.mjs'
 
 const app = express()
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -46,6 +54,11 @@ const subscriptionDbFile = process.env.SUBSCRIPTION_DB || '/data/subscriptions.s
 const sessionDbFile = process.env.AUTH_SESSION_DB || ':memory:'
 const persistentRoot = [subscriptionMode !== 'legacy' ? subscriptionDbFile : null, sessionDbFile].find(value => value && value !== ':memory:')
 const auditDbFile = process.env.AUDIT_DB || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), 'audit.sqlite') : ':memory:')
+const observationDbFile = process.env.OBSERVABILITY_DB || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), 'observability.sqlite') : ':memory:')
+const tokenDbFile = process.env.API_TOKEN_DB || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), 'api-tokens.sqlite') : ':memory:')
+const tokenStore = new ApiTokenStore({ filename: tokenDbFile, credentialVersion: createCredentialVersion(authUser, authHash, process.env.AUTH_SESSION_VERSION || '1') })
+const observationStore = new ObservationStore({ filename: observationDbFile })
+const mutationGate = createMutationGate()
 const auditStore = new AuditStore({
   filename: auditDbFile,
   retentionDays: Number(process.env.AUDIT_RETENTION_DAYS || 30),
@@ -97,6 +110,7 @@ async function syncCoreAfterSubscriptionChange() {
 }
 
 if (subscriptionService) {
+  subscriptionService.runScheduledRefresh = operation => mutationGate.runMutation(operation)
   subscriptionService.onScheduledRefresh = async event => {
     try {
       if (!event.ok) throw event.error
@@ -108,11 +122,16 @@ if (subscriptionService) {
   }
 }
 
+const observationService = new ObservationService({
+  store: observationStore, controller: new ObservationController(), loadCatalog: loadLiveCatalog,
+  verifyPool: verifyProxyPool, probeHost, auditStore, mutationGate, enabled: embeddedCore,
+})
 const recoveryService = new RecoveryService({
   subscriptionStore,
   appVersion,
   exportPorts: embeddedCore ? () => exportEmbeddedCoreState(coreOptions) : null,
   restorePorts: embeddedCore ? state => restoreEmbeddedCoreState(defaultConfigDir(), state, coreOptions) : null,
+  validatePorts: embeddedCore ? (state, subscriptions) => validateEmbeddedCoreState(state, new Set(subscriptions.flatMap(item => item.nodes.map(node => node.id))), coreOptions) : null,
   suspend: subscriptionService ? () => {
     const status = subscriptionService.schedulerStatus()
     if (status.refreshing) throw new Error('订阅正在刷新，请等待刷新完成后重试恢复')
@@ -127,11 +146,14 @@ const diagnosticService = new DiagnosticService({
   subscriptionStore,
   subscriptionService,
   sessionStore,
+  tokenStore,
   auditStore,
+  observationStore,
+  observationService,
   embeddedCore,
   embeddedCoreStatus,
   loadLiveCatalog,
-  dataFiles: [subscriptionMode !== 'legacy' ? subscriptionDbFile : null, sessionDbFile, auditDbFile, process.env.EMBEDDED_CORE_STATE_PATH].filter(value => value && value !== ':memory:'),
+  dataFiles: [subscriptionMode !== 'legacy' ? subscriptionDbFile : null, sessionDbFile, auditDbFile, observationDbFile, tokenDbFile, process.env.EMBEDDED_CORE_STATE_PATH].filter(value => value && value !== ':memory:'),
   deploymentMode: process.env.PPM_PORTABLE === '1' ? 'portable' : process.env.NODE_ENV === 'production' ? 'container' : 'source',
 })
 
@@ -140,6 +162,7 @@ app.use(requestContext)
 app.use(securityHeaders)
 app.use('/api', createOriginGuard({ allowedOrigins: process.env.APP_ALLOWED_ORIGINS || '', trustProxy: process.env.APP_TRUST_PROXY === 'true' }))
 app.use('/api/recovery', express.json({ limit: RECOVERY_MAX_REQUEST_BYTES }))
+app.use(['/api/config', '/api/v1/config'], express.json({ limit: RECOVERY_MAX_REQUEST_BYTES }))
 app.use(express.json({ limit: '6mb' }))
 registerHealthRoute(app)
 
@@ -149,6 +172,7 @@ const { requireAuth } = registerAuthRoutes(app, {
   passwordSalt: authSalt,
   passwordHash: authHash,
   sessionStore,
+  tokenStore,
   sessionIdleMs,
   sessionAbsoluteMs,
   rememberedSessionIdleMs,
@@ -158,12 +182,15 @@ const { requireAuth } = registerAuthRoutes(app, {
 })
 
 app.use('/api', requireAuth)
-const mutationGate = createMutationGate()
-registerSubscriptionRoutes(app, { subscriptionService, subscriptionMode, loadLiveCatalog, syncCoreAfterSubscriptionChange, auditStore, mutationGate })
-registerRuntimeRoute(app, { startedAt, appVersion, buildInfo, embeddedCore, embeddedCoreStatus, loadLiveCatalog })
-registerAuditRoutes(app, { auditStore, mutationGate })
-registerReliabilityRoutes(app, { recoveryService, diagnosticService, auditStore, mutationGate })
-registerPortRoutes(app, {
+registerTokenRoutes(app, { tokenStore, configured: authConfigured, auditStore })
+const api = versionedRegistrar(app, { auditStore })
+registerAutomationRoutes(api, { recoveryService, loadLiveCatalog, auditStore, mutationGate })
+registerObservationRoutes(api, { service: observationService, store: observationStore, auditStore, mutationGate })
+registerSubscriptionRoutes(api, { subscriptionService, subscriptionMode, loadLiveCatalog, syncCoreAfterSubscriptionChange, auditStore, mutationGate })
+registerRuntimeRoute(api, { startedAt, appVersion, buildInfo, embeddedCore, embeddedCoreStatus, loadLiveCatalog })
+registerAuditRoutes(api, { auditStore, mutationGate })
+registerReliabilityRoutes(api, { recoveryService, diagnosticService, auditStore, mutationGate })
+registerPortRoutes(api, {
   probeHost,
   embeddedCore,
   coreOptions,
@@ -176,6 +203,7 @@ registerPortRoutes(app, {
   embeddedPortStatus,
   probeProxyEgress,
   verifyProxyPool,
+  observationService,
   auditStore,
   mutationGate,
 })
@@ -196,7 +224,12 @@ export async function startApplication({
     const address = server.address()
     return { app, server, host, port: typeof address === 'object' && address ? address.port : port }
   }
-  if (embeddedCore) await ensureEmbeddedCore(defaultConfigDir(), coreOptions)
+  if (embeddedCore) {
+    await ensureEmbeddedCore(defaultConfigDir(), coreOptions)
+    // Compose may leave Mihomo running during an app-only update.
+    const core = await embeddedCoreStatus()
+    if (core.reachable) await syncCoreAfterSubscriptionChange()
+  }
   if (subscriptionService && !schedulerStarted) {
     subscriptionService.startScheduler()
     schedulerStarted = true
@@ -208,6 +241,7 @@ export async function startApplication({
   })
   const address = server.address()
   const actualPort = typeof address === 'object' && address ? address.port : port
+  observationService.start()
   console.log(`subscription API listening at http://${host}:${actualPort}`)
   return { app, server, host, port: actualPort }
 }
@@ -219,13 +253,19 @@ export function stopApplication() {
       subscriptionService?.stopScheduler()
       schedulerStarted = false
     }
-    const finish = error => {
+    const observationStopped = observationService.stop()
+    const finish = async error => {
       if (error) return reject(error)
-      subscriptionStore?.close()
-      sessionStore.close()
-      auditStore.close()
-      server = null
-      resolve()
+      try {
+        await observationStopped
+        observationStore.close()
+        subscriptionStore?.close()
+        sessionStore.close()
+        tokenStore.close()
+        auditStore.close()
+        server = null
+        resolve()
+      } catch (cause) { reject(cause) }
     }
     if (!server) return finish()
     server.close(finish)

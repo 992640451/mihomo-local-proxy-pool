@@ -41,7 +41,13 @@ that directory to preserve subscriptions, encryption keys, login sessions, and
 managed ports. Updating the application must not replace `data`. For a portable
 configuration backup, use System Settings to download a passphrase-encrypted
 recovery package. It includes subscriptions and managed ports but deliberately
-excludes login sessions and server audit history.
+excludes login sessions, API tokens, audit history, observation history and scheduler settings.
+
+For headless workflows, create a scoped token in System Settings and use `ppm doctor`,
+`ppm ports list`, `ppm subscriptions refresh --all`, `ppm backup backup.json`, or
+`ppm restore backup.json --plan plan.json`. Restore only previews changes unless
+`--apply --plan plan.json` is provided. Token state persists in `data/api-tokens.sqlite`.
+See [AUTOMATION.md](AUTOMATION.md) for secure credential-file configuration and the v1 API contract.
 
 System Settings also runs component diagnostics and exports a redacted JSON file
 for troubleshooting. Operation history is persisted in `data/audit.sqlite` and

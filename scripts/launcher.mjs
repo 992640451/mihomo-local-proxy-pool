@@ -14,6 +14,7 @@ import {
   writeRuntimeEnv,
 } from '../server/runtime/paths.mjs'
 import { CoreSupervisor } from '../server/runtime/coreSupervisor.mjs'
+import { AUTOMATION_COMMANDS, AUTOMATION_USAGE, runAutomation } from './automation-cli.mjs'
 
 const entryFile = fileURLToPath(import.meta.url)
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
@@ -240,10 +241,12 @@ async function showStatus({ open = false } = {}) {
 
 function usage() {
   console.log(`Proxy Port Manager 便携服务\n\n用法：\n  ppm start [--background] [--no-open]\n  ppm stop\n  ppm restart [--background] [--no-open]\n  ppm status\n  ppm open\n\n不带 --background 时在前台运行，按 Ctrl+C 停止。`)
+  console.log(`\n${AUTOMATION_USAGE}`)
 }
 
 async function main() {
   const [command = 'start', ...args] = process.argv.slice(2)
+  if (AUTOMATION_COMMANDS.has(command)) { process.exitCode = await runAutomation(command, args); return }
   if (command === '_serve') return serve({ shouldOpen: !args.includes('--no-open') })
   const options = { shouldOpen: !args.includes('--no-open') }
   if (command === 'start') return args.includes('--background') ? startBackground(options) : serve(options)

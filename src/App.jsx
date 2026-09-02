@@ -6,6 +6,8 @@ import { useCatalog } from "./hooks/useCatalog.js";
 import { LogsPage } from "./pages/LogsPage.jsx";
 import { OverviewPage } from "./pages/OverviewPage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
+import { NodesPage } from "./pages/NodesPage.jsx";
+import { ObservabilityPage } from "./pages/ObservabilityPage.jsx";
 import {
   PORT_STRATEGIES,
   dedupePortsByPort,
@@ -24,6 +26,7 @@ const NAV_ITEMS = [
   ["overview", "总览", "grid"],
   ["ports", "代理端口", "server"],
   ["nodes", "节点", "nodes"],
+  ["observability", "可观测性", "activity"],
   ["subscriptions", "订阅", "file"],
   ["logs", "操作记录", "clipboard"],
   ["settings", "系统设置", "settings"],
@@ -1205,83 +1208,6 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
   );
 }
 
-function NodesPage({ catalog }) {
-  const [provider, setProvider] = useState("全部订阅"),
-    [country, setCountry] = useState("全部国家"),
-    [query, setQuery] = useState("");
-  const nodes = catalog.nodes.filter(
-    (n) =>
-      (provider === "全部订阅" || n.provider === provider) &&
-      (country === "全部国家" || n.country === country) &&
-      (!query || n.name.toLowerCase().includes(query.toLowerCase())),
-  );
-  return (
-    <div className="page-stack">
-      <PageHead
-        eyebrow="SUBSCRIPTION NODES"
-        title="节点目录"
-        description={`从已启用的订阅中汇总 ${catalog.nodes.length} 个可用节点。`}
-      />
-      <section className="control-panel">
-        <div className="toolbar">
-          <Select value={provider} onChange={setProvider}>
-            <option>全部订阅</option>
-            {catalog.providers.map((p) => (
-              <option key={p.id}>{p.name}</option>
-            ))}
-          </Select>
-          <Select value={country} onChange={setCountry}>
-            <option>全部国家</option>
-            {catalog.countries.map((c) => (
-              <option key={c.code}>{c.name}</option>
-            ))}
-          </Select>
-          <label className="search">
-            <Icon name="search" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索节点名称"
-            />
-          </label>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>节点</th>
-                <th>订阅</th>
-                <th>国家/地区</th>
-                <th>代码</th>
-                <th>数据来源</th>
-              </tr>
-            </thead>
-            <tbody>
-              {nodes.map((n) => (
-                <tr key={n.id}>
-                  <td>
-                    <strong>{n.name}</strong>
-                  </td>
-                  <td>{n.provider}</td>
-                  <td>
-                    {n.flag} {n.country}
-                  </td>
-                  <td>
-                    <span className="code">{n.code}</span>
-                  </td>
-                  <td>加密订阅库</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <footer className="table-footer">
-          当前显示 {nodes.length} / {catalog.nodes.length} 个节点
-        </footer>
-      </section>
-    </div>
-  );
-}
 
 function SubscriptionsPage({ catalog, refresh }) {
   const [items, setItems] = useState([]),
@@ -1860,6 +1786,7 @@ export default function App() {
       />
     ),
     nodes: <NodesPage catalog={catalog} />,
+    observability: <ObservabilityPage />,
     subscriptions: <SubscriptionsPage catalog={catalog} refresh={refresh} />,
     logs: <LogsPage />,
     settings: (
@@ -1922,6 +1849,7 @@ export default function App() {
           {NAV_ITEMS.map(([id, label, icon]) => (
             <button
               key={id}
+              aria-label={label}
               className={active === id ? "active" : ""}
               onClick={() => setActive(id)}
             >

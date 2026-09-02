@@ -74,6 +74,9 @@ test('restores an authenticated HttpOnly cookie session after a server restart a
       },
     })
     assert.equal((await fetch(`${base}/auth/session`)).status, 401)
+    assert.equal((await fetch(`${base}/observability`)).status, 401)
+    assert.equal((await fetch(`${base}/observability/history`)).status, 401)
+    assert.equal((await fetch(`${base}/observability/nodes/test`, { method: 'POST' })).status, 401)
     assert.equal((await fetch(`${base}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:'test-user',password:'wrong'}) })).status, 401)
 
     const browserLogin = await fetch(`${base}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:'test-user',password,remember:false}) })
@@ -92,7 +95,14 @@ test('restores an authenticated HttpOnly cookie session after a server restart a
     assert.ok(cookie?.includes('SameSite=Lax'))
     assert.ok(cookie?.includes('Max-Age=1209600'))
     const sessionCookie = cookie.split(';', 1)[0]
+    const observationStatus = await fetch(`${base}/observability/status`, { headers: { Cookie: sessionCookie } })
+    assert.equal(observationStatus.status, 200)
+    assert.equal((await observationStatus.json()).settings.enabled, false)
     assert.equal((await fetch(`${base}/runtime`, { headers:{Cookie:sessionCookie} })).status, 200)
+    const issued = await fetch(`${base}/tokens`, { method: 'POST', headers: { Cookie: sessionCookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'restart-test', scopes: ['read'] }) })
+    assert.equal(issued.status, 201)
+    const apiToken = await issued.json()
+    assert.equal((await fetch(`${base}/v1/runtime`, { headers: { Authorization: `Bearer ${apiToken.secret}` } })).status, 200)
     const missing = await fetch(`${base}/missing`, { headers:{Cookie:sessionCookie} })
     assert.equal(missing.status, 404)
     const missingBody = await missing.json()
@@ -106,12 +116,16 @@ test('restores an authenticated HttpOnly cookie session after a server restart a
     assert.equal((await restored.json()).remembered, true)
     assert.equal((await fetch(`${base}/runtime`, { headers:{Cookie:sessionCookie} })).status, 200)
 
+    assert.equal((await fetch(`${base}/v1/runtime`, { headers: { Authorization: `Bearer ${apiToken.secret}` } })).status, 200)
+    assert.equal((await fetch(`${base}/tokens/${apiToken.id}`, { method: 'DELETE', headers: { Cookie: sessionCookie } })).status, 204)
+
     const logout = await fetch(`${base}/auth/logout`, { method:'POST', headers:{Cookie:sessionCookie} })
     assert.equal(logout.status, 204)
     assert.ok(logout.headers.get('set-cookie')?.includes('Max-Age=0'))
     await stopServer(child)
     child = await startServer(port, env)
     assert.equal((await fetch(`${base}/runtime`, { headers:{Cookie:sessionCookie} })).status, 401)
+    assert.equal((await fetch(`${base}/v1/runtime`, { headers: { Authorization: `Bearer ${apiToken.secret}` } })).status, 401)
   } finally {
     await stopServer(child)
     await rm(tempDir, { recursive: true, force: true })

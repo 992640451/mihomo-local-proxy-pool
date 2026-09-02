@@ -44,6 +44,9 @@ Your application only needs one local address. Proxy Port Manager and Mihomo han
 
 It is designed for local development, crawlers, automation tools, and applications that need a stable HTTP or SOCKS5 proxy entry.
 
+Automation includes `/api/v1`, OpenAPI, revocable scoped API tokens, and `ppm doctor / backup / restore / ports list / subscriptions refresh`.
+Restore defaults to a dry-run diff and requires an explicit saved plan to apply. See [AUTOMATION.md](AUTOMATION.md) for scopes, environment variables, safety limits and examples.
+
 > [!IMPORTANT]
 > This project manages subscriptions you are authorized to use. It does not provide proxy nodes. It binds to `127.0.0.1` by default and is intended for a single-machine local proxy pool, not a public proxy service.
 
@@ -156,6 +159,8 @@ Multiple exit IPs usually indicate that rotation is working. Different nodes may
 Automatic strategies only use nodes that pass health checks. The service rejects invalid pools, unpublished ports, or nodes removed by a subscription update and explains the reason.
 
 ## Core features
+
+- Live node health, bounded batch latency tests, persistent port verification history, and 24-hour failure trends. Background probes are off by default; see the [observability guide (Chinese)](OBSERVABILITY.md).
 
 - Import subscription URLs or paste Mihomo / Clash YAML.
 - Encrypted subscription storage with last-known-good fallback.

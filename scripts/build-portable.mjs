@@ -65,7 +65,7 @@ async function main() {
 
   const appFiles = ['server', 'shared', 'scripts', 'dist', 'package.json', 'package-lock.json']
   for (const value of appFiles) await cp(path.join(projectRoot, value), path.join(stage, 'app', value), { recursive: true })
-  for (const value of ['README.md', 'PORTABLE.md', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'ppm.cmd', 'ppm']) {
+  for (const value of ['README.md', 'PORTABLE.md', 'AUTOMATION.md', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'ppm.cmd', 'ppm']) {
     await cp(path.join(projectRoot, value), path.join(stage, value))
   }
   const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'

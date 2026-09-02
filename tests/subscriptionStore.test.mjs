@@ -38,9 +38,13 @@ test('订阅密文存储、节点改名保持 ID，并在坏版本时保留上�
 
 test('订阅 URL 只以脱敏形式出现在公共列表', async () => {
   const store = new SubscriptionStore({ masterKey })
-  const id = store.insertSubscription({ name: 'remote', sourceType: 'url', url: 'https://example.com/api/subscription/super-secret?token=abcd' })
+  const id = store.insertSubscription({ name: 'remote', sourceType: 'url', url: 'https://private-user:private-pass@example.com/api/subscription/super-secret?token=abcd#private-fragment' })
   assert.equal(store.get(id).url.includes('super-secret'), false)
   assert.equal(store.get(id).url.includes('abcd'), false)
+  assert.equal(store.get(id).url.includes('private-'), false)
+  store.recordFailure(id, 'failed password=short-secret https://example.com/sub/private-key')
+  assert.equal(store.get(id).lastError.includes('short-secret'), false)
+  assert.equal(store.get(id).lastError.includes('private-key'), false)
   assert.equal(store.get(id, { secrets: true }).url.includes('super-secret'), true)
   store.close()
 })

@@ -15,6 +15,7 @@ export function registerPortRoutes(app, {
   embeddedPortStatus,
   probeProxyEgress,
   verifyProxyPool,
+  observationService,
   auditStore,
   mutationGate,
 } = {}) {
@@ -93,12 +94,15 @@ export function registerPortRoutes(app, {
       const catalog = await loadLiveCatalog()
       const listener = (catalog.listeners || []).find(item => Number(item.port) === port)
       if (!listener || listener.isGlobal) return apiError(req, res, { status: 404, code: 'PORT_POOL_NOT_FOUND', message: '端口池不存在' })
-      const result = await verifyProxyPool({ host: probeHost, port, attempts: req.body?.attempts ?? 8 })
+      const result = observationService?.enabled
+        ? await observationService.verifyPort(port, req.body?.attempts ?? 8)
+        : await verifyProxyPool({ host: probeHost, port, protocol: listener.protocol, attempts: req.body?.attempts ?? 8 })
       recordAudit(auditStore, req, { action: 'port.verify', targetType: 'port', targetId: req.params.port, message: `端口 ${port} 验证完成：${result.successes}/${result.attempts} 成功`, metadata: { attempts: result.attempts, successes: result.successes, failures: result.failures, uniqueExitCount: result.uniqueExitCount } })
       res.set('Cache-Control', 'no-store').json(result)
     } catch (error) {
       recordAudit(auditStore, req, { action: 'port.verify', outcome: 'failure', targetType: 'port', targetId: req.params.port, message: `代理池验证失败：${error.message}` })
-      apiError(req, res, { status: 400, code: 'PORT_VERIFY_FAILED', message: '代理池验证失败', error })
+      if (error.status === 429) res.set('Retry-After', '15')
+      apiError(req, res, { status: error.status || 400, code: error.code || 'PORT_VERIFY_FAILED', message: '代理池验证失败', error })
     }
   }))
 }
