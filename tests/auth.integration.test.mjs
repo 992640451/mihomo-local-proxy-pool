@@ -63,7 +63,16 @@ test('restores an authenticated HttpOnly cookie session after a server restart a
     const health = await fetch(`http://127.0.0.1:${port}/healthz`)
     assert.equal(health.status, 200)
     assert.equal((await health.json()).status, 'ok')
-    assert.equal((await fetch(`${base}/runtime`)).status, 401)
+    const unauthenticated = await fetch(`${base}/runtime`, { headers: { 'X-Request-Id': 'auth-suite-request' } })
+    assert.equal(unauthenticated.status, 401)
+    assert.equal(unauthenticated.headers.get('x-request-id'), 'auth-suite-request')
+    assert.deepEqual(await unauthenticated.json(), {
+      error: {
+        code: 'AUTH_REQUIRED',
+        message: '需要登录',
+        requestId: 'auth-suite-request',
+      },
+    })
     assert.equal((await fetch(`${base}/auth/session`)).status, 401)
     assert.equal((await fetch(`${base}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:'test-user',password:'wrong'}) })).status, 401)
 
@@ -84,6 +93,11 @@ test('restores an authenticated HttpOnly cookie session after a server restart a
     assert.ok(cookie?.includes('Max-Age=1209600'))
     const sessionCookie = cookie.split(';', 1)[0]
     assert.equal((await fetch(`${base}/runtime`, { headers:{Cookie:sessionCookie} })).status, 200)
+    const missing = await fetch(`${base}/missing`, { headers:{Cookie:sessionCookie} })
+    assert.equal(missing.status, 404)
+    const missingBody = await missing.json()
+    assert.equal(missingBody.error.code, 'API_NOT_FOUND')
+    assert.equal(missingBody.error.requestId, missing.headers.get('x-request-id'))
 
     await stopServer(child)
     child = await startServer(port, env)

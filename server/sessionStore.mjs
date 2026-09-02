@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { hasColumn, openMigratedDatabase } from './database/migrations.mjs'
 
 function tokenHash(token) {
   return createHash('sha256').update(String(token || '')).digest('hex')
@@ -18,6 +16,32 @@ function toSession(row) {
   }
 }
 
+function sessionMigrations(idleMs) {
+  return [
+    {
+      version: 1,
+      up(db) {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS sessions (
+            token_hash TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            credential_version TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            last_seen_at INTEGER NOT NULL,
+            absolute_expires_at INTEGER NOT NULL,
+            idle_timeout_ms INTEGER NOT NULL
+          );
+          CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(absolute_expires_at);
+        `)
+        if (!hasColumn(db, 'sessions', 'idle_timeout_ms')) {
+          db.exec('ALTER TABLE sessions ADD COLUMN idle_timeout_ms INTEGER;')
+          db.prepare('UPDATE sessions SET idle_timeout_ms = ? WHERE idle_timeout_ms IS NULL').run(idleMs)
+        }
+      },
+    },
+  ]
+}
+
 export function createCredentialVersion(username, passwordHash, configuredVersion = '1') {
   return createHash('sha256')
     .update(`${username}\0${passwordHash}\0${configuredVersion}`)
@@ -32,33 +56,19 @@ export class SessionStore {
     touchIntervalMs = 300_000,
     credentialVersion,
   }) {
-    if (filename !== ':memory:') mkdirSync(path.dirname(path.resolve(filename)), { recursive: true })
     this.filename = filename
     this.idleMs = idleMs
     this.absoluteMs = absoluteMs
     this.touchIntervalMs = Math.max(1_000, Math.min(touchIntervalMs, Math.floor(idleMs / 2)))
     this.credentialVersion = credentialVersion
-    this.db = new DatabaseSync(filename)
-    this.db.exec('PRAGMA busy_timeout = 5000;')
-    if (filename !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL;')
-    this.db.exec(`
-      PRAGMA synchronous = NORMAL;
-      CREATE TABLE IF NOT EXISTS sessions (
-        token_hash TEXT PRIMARY KEY,
-        username TEXT NOT NULL,
-        credential_version TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        last_seen_at INTEGER NOT NULL,
-        absolute_expires_at INTEGER NOT NULL,
-        idle_timeout_ms INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(absolute_expires_at);
-    `)
-    const columns = this.db.prepare('PRAGMA table_info(sessions)').all()
-    if (!columns.some(column => column.name === 'idle_timeout_ms')) {
-      this.db.exec('ALTER TABLE sessions ADD COLUMN idle_timeout_ms INTEGER;')
-      this.db.prepare('UPDATE sessions SET idle_timeout_ms = ? WHERE idle_timeout_ms IS NULL').run(this.idleMs)
-    }
+    const migrated = openMigratedDatabase({
+      filename,
+      name: '会话',
+      migrations: sessionMigrations(this.idleMs),
+    })
+    this.db = migrated.db
+    this.migrationBackupFile = migrated.backupFile
+    this.schemaVersion = migrated.version
     this.selectStatement = this.db.prepare(`
       SELECT username, credential_version, created_at, last_seen_at, absolute_expires_at, idle_timeout_ms
       FROM sessions WHERE token_hash = ?

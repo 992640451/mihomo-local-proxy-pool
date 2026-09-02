@@ -1,43 +1,56 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { hasColumn, openMigratedDatabase } from '../database/migrations.mjs'
 import { SecretBox } from './crypto.mjs'
 
 function now() { return Date.now() }
 function bool(value) { return value ? 1 : 0 }
 
+const subscriptionMigrations = [
+  {
+    version: 1,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS subscriptions (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, source_type TEXT NOT NULL,
+          url_encrypted TEXT, enabled INTEGER NOT NULL DEFAULT 1,
+          priority INTEGER NOT NULL DEFAULT 0,
+          refresh_interval_seconds INTEGER NOT NULL DEFAULT 3600,
+          etag TEXT, last_modified TEXT, active_snapshot_id TEXT,
+          last_attempt_at INTEGER, last_success_at INTEGER, last_error TEXT,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS subscription_snapshots (
+          id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+          content_encrypted TEXT NOT NULL, content_hash TEXT NOT NULL, format TEXT NOT NULL,
+          node_count INTEGER NOT NULL, status TEXT NOT NULL, error TEXT, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS subscription_nodes (
+          id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+          stable_key TEXT NOT NULL, name TEXT NOT NULL, raw_encrypted TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1, orphaned_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+          UNIQUE(subscription_id, stable_key)
+        );
+        CREATE INDEX IF NOT EXISTS subscription_nodes_subscription_idx ON subscription_nodes(subscription_id, active);
+      `)
+      if (!hasColumn(db, 'subscriptions', 'priority')) {
+        db.exec('ALTER TABLE subscriptions ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;')
+      }
+    },
+  },
+]
+
 export class SubscriptionStore {
   constructor({ filename = ':memory:', masterKey }) {
-    if (filename !== ':memory:') mkdirSync(path.dirname(path.resolve(filename)), { recursive: true })
-    this.db = new DatabaseSync(filename)
+    const migrated = openMigratedDatabase({
+      filename,
+      name: '订阅',
+      migrations: subscriptionMigrations,
+      foreignKeys: true,
+    })
+    this.db = migrated.db
+    this.migrationBackupFile = migrated.backupFile
+    this.schemaVersion = migrated.version
     this.box = new SecretBox(masterKey)
-    this.db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;')
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS subscriptions (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, source_type TEXT NOT NULL,
-        url_encrypted TEXT, enabled INTEGER NOT NULL DEFAULT 1,
-        priority INTEGER NOT NULL DEFAULT 0,
-        refresh_interval_seconds INTEGER NOT NULL DEFAULT 3600,
-        etag TEXT, last_modified TEXT, active_snapshot_id TEXT,
-        last_attempt_at INTEGER, last_success_at INTEGER, last_error TEXT,
-        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS subscription_snapshots (
-        id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
-        content_encrypted TEXT NOT NULL, content_hash TEXT NOT NULL, format TEXT NOT NULL,
-        node_count INTEGER NOT NULL, status TEXT NOT NULL, error TEXT, created_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS subscription_nodes (
-        id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
-        stable_key TEXT NOT NULL, name TEXT NOT NULL, raw_encrypted TEXT NOT NULL,
-        active INTEGER NOT NULL DEFAULT 1, orphaned_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-        UNIQUE(subscription_id, stable_key)
-      );
-      CREATE INDEX IF NOT EXISTS subscription_nodes_subscription_idx ON subscription_nodes(subscription_id, active);
-    `)
-    const columns = new Set(this.db.prepare('PRAGMA table_info(subscriptions)').all().map(column => column.name))
-    if (!columns.has('priority')) this.db.exec('ALTER TABLE subscriptions ADD COLUMN priority INTEGER NOT NULL DEFAULT 0')
   }
 
   insertSubscription({ id = randomUUID(), name, sourceType, url = null, enabled = true, priority = 0, refreshIntervalSeconds = 3600 }) {

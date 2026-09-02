@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, GlobeSimple, Network } from "@phosphor-icons/react";
+import { apiErrorMessage, apiFetch } from "./api.js";
+import { Icon, PageHead, Select, formatDuration } from "./components/ui.jsx";
+import { useCatalog } from "./hooks/useCatalog.js";
+import { LogsPage } from "./pages/LogsPage.jsx";
+import { OverviewPage } from "./pages/OverviewPage.jsx";
+import { SettingsPage } from "./pages/SettingsPage.jsx";
 import {
   PORT_STRATEGIES,
   dedupePortsByPort,
@@ -28,121 +34,6 @@ const EMPTY_FILTERS = {
   status: "全部状态",
   query: "",
 };
-const API_BASE = `${import.meta.env.BASE_URL}api`;
-
-async function apiFetch(path, options = {}) {
-  const headers = new Headers(options.headers || {});
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: "same-origin",
-  });
-  if (
-    response.status === 401 &&
-    !["/auth/login", "/auth/session", "/auth/logout"].includes(path)
-  )
-    window.dispatchEvent(new Event("ppm:unauthorized"));
-  return response;
-}
-
-function Icon({ name, size = 18 }) {
-  const paths = {
-    grid: (
-      <>
-        <rect x="3" y="3" width="6" height="6" rx="1" />
-        <rect x="15" y="3" width="6" height="6" rx="1" />
-        <rect x="3" y="15" width="6" height="6" rx="1" />
-        <rect x="15" y="15" width="6" height="6" rx="1" />
-      </>
-    ),
-    server: (
-      <>
-        <rect x="3" y="4" width="18" height="6" rx="2" />
-        <rect x="3" y="14" width="18" height="6" rx="2" />
-        <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" />
-      </>
-    ),
-    nodes: (
-      <>
-        <circle cx="12" cy="5" r="2.5" />
-        <circle cx="5" cy="18" r="2.5" />
-        <circle cx="19" cy="18" r="2.5" />
-        <path d="m10.4 7-4 8.5M13.6 7l4 8.5M7.5 18h9" />
-      </>
-    ),
-    file: (
-      <>
-        <path d="M6 2h9l4 4v16H6z" />
-        <path d="M14 2v5h5M9 12h6M9 16h6" />
-      </>
-    ),
-    clipboard: (
-      <>
-        <path d="M9 5H6a2 2 0 0 0-2 2v14h16V7a2 2 0 0 0-2-2h-3" />
-        <rect x="9" y="2" width="6" height="5" rx="1" />
-        <path d="M8 12h8M8 16h6" />
-      </>
-    ),
-    settings: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l-2.83 2.83A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1.4 1.7h-4A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-2.83-2.83A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 2.9 13.6v-4A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l2.83-2.83A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10.4 3h4A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l2.83 2.83A1.7 1.7 0 0 0 19.4 9c.15.38.6.6 1.7.6v4c-1.1 0-1.55.22-1.7.6Z" />
-      </>
-    ),
-    plus: <path d="M12 5v14M5 12h14" />,
-    search: (
-      <>
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-4-4" />
-      </>
-    ),
-    refresh: (
-      <>
-        <path d="M20 11a8 8 0 1 0-2.3 5.7" />
-        <path d="M20 4v7h-7" />
-      </>
-    ),
-    close: <path d="m5 5 14 14M19 5 5 19" />,
-    activity: <path d="M3 12h4l2.5-7 5 14 2.5-7h4" />,
-    trash: (
-      <>
-        <path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14" />
-      </>
-    ),
-    check: <path d="m5 12 4 4L19 6" />,
-  };
-  return (
-    <svg
-      className="icon"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {paths[name]}
-    </svg>
-  );
-}
-
-function Select({ value, onChange, children, ariaLabel }) {
-  return (
-    <label className="select-wrap">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={ariaLabel}
-      >
-        {children}
-      </select>
-      <span className="select-arrow">⌄</span>
-    </label>
-  );
-}
-
 function SelectionBoxIcon({ state = "none", clear = false, size = 16 }) {
   return (
     <svg
@@ -170,14 +61,6 @@ function SelectionBoxIcon({ state = "none", clear = false, size = 16 }) {
       ) : null}
     </svg>
   );
-}
-
-function formatDuration(seconds = 0) {
-  const d = Math.floor(seconds / 86400),
-    h = Math.floor((seconds % 86400) / 3600),
-    m = Math.floor((seconds % 3600) / 60),
-    s = seconds % 60;
-  return `${d ? `${d}天 ` : ""}${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 function formatCheckAge(checkedAt) {
@@ -329,72 +212,6 @@ function ProxyAddressCopy({ port, onNotice }) {
       </span>
     </div>
   );
-}
-
-function PageHead({ eyebrow, title, description, action }) {
-  return (
-    <div className="page-head">
-      <div>
-        <span className="eyebrow">{eyebrow}</span>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-function MetricCard({ label, value, suffix, meta, icon, tone = "cyan" }) {
-  return (
-    <article className={`metric-card tone-${tone}`}>
-      <div className="metric-head">
-        <span>{label}</span>
-        <span className="metric-status" />
-      </div>
-      <div className="metric-body">
-        <div>
-          <strong>{value}</strong>
-          {suffix && <span className="metric-suffix">{suffix}</span>}
-        </div>
-        <div className="metric-icon">
-          <Icon name={icon} size={31} />
-        </div>
-      </div>
-      <div className="metric-meta">{meta}</div>
-    </article>
-  );
-}
-
-function useCatalog(enabled) {
-  const [state, setState] = useState({
-    loading: true,
-    catalog: null,
-    runtime: null,
-    error: "",
-  });
-  const refresh = useCallback(async () => {
-    if (!enabled) return;
-    setState((s) => ({ ...s, loading: true, error: "" }));
-    try {
-      const [catalogRes, runtimeRes] = await Promise.all([
-        apiFetch("/subscriptions/catalog"),
-        apiFetch("/runtime"),
-      ]);
-      if (!catalogRes.ok || !runtimeRes.ok) throw new Error("后端接口返回异常");
-      setState({
-        loading: false,
-        catalog: await catalogRes.json(),
-        runtime: await runtimeRes.json(),
-        error: "",
-      });
-    } catch (error) {
-      setState((s) => ({ ...s, loading: false, error: error.message }));
-    }
-  }, [enabled]);
-  useEffect(() => {
-    if (enabled) refresh();
-  }, [enabled, refresh]);
-  return { ...state, refresh };
 }
 
 function LoginScreen({ onLogin }) {
@@ -878,62 +695,6 @@ function PortDrawer({
   );
 }
 
-function Overview({ catalog, runtime, ports }) {
-  return (
-    <div className="page-stack">
-      <PageHead
-        eyebrow="LIVE CONFIGURATION"
-        title="系统总览"
-        description="统计数据来自订阅库、端口配置和当前运行中的服务。"
-      />
-      <section className="metrics-grid">
-        <MetricCard
-          label="订阅节点"
-          value={catalog.nodes.length}
-          suffix="个"
-          icon="nodes"
-          meta={`${catalog.providers.length} 个订阅来源`}
-        />
-        <MetricCard
-          label="识别国家/地区"
-          value={catalog.countries.length}
-          suffix="个"
-          icon="grid"
-          meta="按当前节点名称动态归类"
-        />
-        <MetricCard
-          label="已启用端口配置"
-          value={ports.filter((p) => p.enabled).length}
-          suffix={`/ ${ports.length}`}
-          icon="server"
-          meta="服务端持久化配置"
-        />
-        <MetricCard
-          label="服务进程运行时长"
-          value={formatDuration(runtime.processUptimeSeconds)}
-          icon="activity"
-          meta={`${runtime.hostname} · ${runtime.platform}`}
-        />
-      </section>
-      <section className="data-card">
-        <h2>国家/地区分布</h2>
-        <div className="country-grid">
-          {catalog.countries.map((c) => (
-            <div className="country-card" key={c.code}>
-              <span>{c.flag}</span>
-              <div>
-                <strong>{c.name}</strong>
-                <small>{c.code}</small>
-              </div>
-              <b>{c.count}</b>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function PoolVerificationDialog({ verification, onClose }) {
   if (!verification) return null;
   const { port, result } = verification;
@@ -1047,7 +808,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
       });
       const result = await response.json();
       if (!response.ok)
-        throw new Error(result.detail || result.error || "端口配置应用失败");
+        throw new Error(apiErrorMessage(result, "端口配置应用失败"));
       const applied = {
         ...draft,
         ...result,
@@ -1084,7 +845,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
           `/ports/${p.port}/${p.isGlobal ? "egress" : "test"}`,
         ),
         data = await r.json();
-      if (!r.ok) throw new Error(data.detail || data.error || "端口检测失败");
+      if (!r.ok) throw new Error(apiErrorMessage(data, "端口检测失败"));
       const checkedAt = data.checkedAt || new Date().toISOString();
       if (p.isGlobal) {
         setPorts((cur) =>
@@ -1172,7 +933,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
         }),
         result = await response.json();
       if (!response.ok)
-        throw new Error(result.detail || result.error || "代理池验证失败");
+        throw new Error(apiErrorMessage(result, "代理池验证失败"));
       setVerification({ port: p.port, result });
       addLog(
         `验证端口 ${p.port}：${result.successes}/${result.attempts} 成功，${result.uniqueExitCount} 个出口`,
@@ -1194,7 +955,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
           }),
           result = await response.json();
         if (!response.ok)
-          throw new Error(result.detail || result.error || "端口配置删除失败");
+          throw new Error(apiErrorMessage(result, "端口配置删除失败"));
         if (!result.removed)
           throw new Error("该端口不是可删除的监听配置");
         addLog(
@@ -1540,7 +1301,7 @@ function SubscriptionsPage({ catalog, refresh }) {
     const response = await apiFetch("/subscriptions");
     const data = await response.json();
     if (!response.ok)
-      throw new Error(data.detail || data.error || "订阅列表读取失败");
+      throw new Error(apiErrorMessage(data, "订阅列表读取失败"));
     setItems(data.subscriptions || []);
   }, []);
   useEffect(() => {
@@ -1562,7 +1323,7 @@ function SubscriptionsPage({ catalog, refresh }) {
     const response = await apiFetch(path, options),
       data = response.status === 204 ? null : await response.json();
     if (!response.ok)
-      throw new Error(data?.detail || data?.error || "操作失败");
+      throw new Error(apiErrorMessage(data));
     return data;
   };
   const body = () => ({
@@ -1970,114 +1731,6 @@ function SubscriptionsPage({ catalog, refresh }) {
   );
 }
 
-function LogsPage({ logs, clear }) {
-  return (
-    <div className="page-stack">
-      <PageHead
-        eyebrow="LOCAL AUDIT"
-        title="操作记录"
-        description="记录当前浏览器内发生的配置读取与端口操作。"
-        action={
-          <button className="button ghost" onClick={clear}>
-            清空记录
-          </button>
-        }
-      />
-      <section className="data-card log-list">
-        {logs.length ? (
-          logs.map((log) => (
-            <div className="log-row" key={log.id}>
-              <span className="status-dot" />
-              <time>
-                {new Date(log.at).toLocaleString("zh-CN", { hour12: false })}
-              </time>
-              <strong>{log.text}</strong>
-            </div>
-          ))
-        ) : (
-          <div className="empty-state">暂无操作记录</div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function SettingsPage({
-  runtime,
-  refreshSeconds,
-  setRefreshSeconds,
-  resetPorts,
-  refresh,
-}) {
-  return (
-    <div className="page-stack">
-      <PageHead
-        eyebrow="SYSTEM SETTINGS"
-        title="系统设置"
-        description="管理界面刷新、运行状态读取和端口配置同步。"
-      />
-      <section className="data-card settings-card">
-        <label className="setting-row">
-          <span>
-            <strong>界面数据自动刷新</strong>
-            <small>
-              仅刷新管理界面；订阅的服务端刷新周期在订阅页单独设置
-            </small>
-          </span>
-          <Select
-            value={String(refreshSeconds)}
-            onChange={(v) => setRefreshSeconds(Number(v))}
-          >
-            <option value="0">关闭</option>
-            <option value="30">30 秒</option>
-            <option value="60">1 分钟</option>
-            <option value="300">5 分钟</option>
-          </Select>
-        </label>
-        <div className="setting-row">
-          <span>
-            <strong>立即刷新界面</strong>
-            <small>重新读取订阅、端口配置与 Mihomo 运行状态</small>
-          </span>
-          <button className="button primary" onClick={refresh}>
-            读取状态
-          </button>
-        </div>
-        <div className="setting-row">
-          <span>
-            <strong>重新同步端口配置</strong>
-            <small>丢弃当前界面状态并重新读取服务端端口配置</small>
-          </span>
-          <button className="button danger" onClick={resetPorts}>
-            重新同步
-          </button>
-        </div>
-      </section>
-      <section className="data-card">
-        <h2>运行环境</h2>
-        <dl className="detail-list">
-          <div>
-            <dt>主机</dt>
-            <dd>{runtime.hostname}</dd>
-          </div>
-          <div>
-            <dt>平台</dt>
-            <dd>{runtime.platform}</dd>
-          </div>
-          <div>
-            <dt>服务进程运行时长</dt>
-            <dd>{formatDuration(runtime.processUptimeSeconds)}</dd>
-          </div>
-          <div>
-            <dt>系统运行时长</dt>
-            <dd>{formatDuration(runtime.systemUptimeSeconds)}</dd>
-          </div>
-        </dl>
-      </section>
-    </div>
-  );
-}
-
 export default function App() {
   const [authenticated, setAuthenticated] = useState(null),
     { loading, catalog, runtime, error, refresh } = useCatalog(
@@ -2194,7 +1847,7 @@ export default function App() {
   };
   const pages = {
     overview: (
-      <Overview catalog={catalog} runtime={liveRuntime} ports={ports} />
+      <OverviewPage catalog={catalog} runtime={liveRuntime} ports={ports} />
     ),
     ports: (
       <PortsPage

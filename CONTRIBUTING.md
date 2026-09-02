@@ -37,6 +37,8 @@ npm run docker:update
 - 行为变化应同步更新 README 或 DOCKER 文档。
 - PR 描述应包含动机、实现方式、验证结果和可能的兼容性影响。
 
+服务端路由、数据库结构或 API 错误响应的修改还应遵循 [架构与演进约定](docs/ARCHITECTURE.md)。数据库迁移必须追加新版本，不得改写已经发布的迁移。
+
 ## 报告问题
 
 普通缺陷可以使用 Issue 模板。请提供操作系统、Node/Docker 版本、复现步骤和已脱敏日志。安全漏洞请遵循 [SECURITY.md](SECURITY.md)，不要公开披露。
