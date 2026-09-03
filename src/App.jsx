@@ -340,9 +340,10 @@ function PortDrawer({
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes],
   );
-  const selectedNodes = draft.nodeIds
-    .map((id) => nodesById.get(id))
-    .filter(Boolean);
+  const selectedNodes = draft.nodeIds.map((id) =>
+    nodesById.get(id) || { id, name: "失效节点", unavailable: true },
+  );
+  const unavailableNodeCount = selectedNodes.filter((node) => node.unavailable).length;
   const selectedIdSet = useMemo(() => new Set(draft.nodeIds), [draft.nodeIds]);
   const selectedIndexById = useMemo(
     () => new Map(draft.nodeIds.map((id, index) => [id, index])),
@@ -559,16 +560,31 @@ function PortDrawer({
               </button>
             </div>
           </div>
+          {unavailableNodeCount > 0 && (
+            <div className="node-warning-panel" role="status">
+              <strong>{unavailableNodeCount} 个关联节点已失效</strong>
+              <p>这些节点已不在当前有效订阅中。可移除后重新选择节点；保存前不会更改现有端口配置。</p>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => updateNodeIds((ids) => ids.filter((id) => nodesById.has(id)))}
+              >
+                移除失效节点
+              </button>
+            </div>
+          )}
           {selectedNodes.length ? (
             <div className="pool-order">
               {selectedNodes.map((node, index) => (
-                <div className="pool-node" key={node.id}>
+                <div className={`pool-node${node.unavailable ? " unavailable" : ""}`} key={node.id}>
                   <b>{index === 0 ? "主" : index}</b>
-                  <span className="flag">{node.flag}</span>
+                  <span className="flag">{node.unavailable ? "!" : node.flag}</span>
                   <span className="node-copy">
                     <strong>{node.name}</strong>
                     <small>
-                      {index === 0 ? "当前首选" : "备用/候选"} · {node.country}
+                      {node.unavailable
+                        ? "已不在当前有效订阅中"
+                        : `${index === 0 ? "当前首选" : "备用/候选"} · ${node.country}`}
                     </small>
                   </span>
                   <span className="order-actions">
@@ -1030,6 +1046,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
             <option>全部状态</option>
             <option>在线</option>
             <option>已停用</option>
+            <option>节点异常</option>
           </Select>
           <label className="search">
             <Icon name="search" />
@@ -1083,7 +1100,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                         p.isGlobal ? "系统配置" : providerNames.join("、")
                       }
                     >
-                      {p.isGlobal ? "系统配置" : providerNames[0]}
+                      {p.isGlobal ? "系统配置" : providerNames[0] || "无有效关联"}
                       {!p.isGlobal && providerNames.length > 1
                         ? ` +${providerNames.length - 1}`
                         : ""}
@@ -1094,7 +1111,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                           ? p.egress
                             ? `${p.egress.flag || "🌐"} ${p.egress.country}`
                             : "🌐 待检测"
-                          : `${p.node?.flag || ""} ${countryNames[0] || ""}${countryNames.length > 1 ? ` +${countryNames.length - 1}` : ""}`}
+                          : `${p.node?.flag || ""} ${countryNames[0] || "—"}${countryNames.length > 1 ? ` +${countryNames.length - 1}` : ""}`}
                       </span>
                     </td>
                     <td>
@@ -1114,6 +1131,11 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                                 ? `当前首选：${p.node.name}`
                                 : "无可用节点"}
                         </small>
+                        {p.nodeWarning && (
+                          <small className="node-warning" title="关联节点已不在当前有效订阅中；端口配置仍保留，可修改节点或删除端口。">
+                            {p.nodeWarning}
+                          </small>
+                        )}
                       </div>
                     </td>
                     <td className="check-cell">
@@ -1121,17 +1143,19 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                     </td>
                     <td className="status-cell">
                       <span
-                        className={`status-pill ${p.enabled ? "online" : "offline"}`}
+                        className={`status-pill ${p.nodeWarning ? "warning" : p.enabled ? "online" : "offline"}`}
                       >
-                        {p.isGlobal
-                          ? "全局监听"
-                          : p.managedBy === "embedded-mihomo"
-                            ? "受管监听"
-                            : p.managedBy === "mihomo"
-                              ? "Mihomo 监听"
-                              : p.enabled
-                                ? "已启用"
-                                : "已停用"}
+                        {p.enabled === false
+                          ? "已停用"
+                          : p.nodeWarning
+                            ? "节点异常"
+                            : p.isGlobal
+                              ? "全局监听"
+                              : p.managedBy === "embedded-mihomo"
+                                ? "受管监听"
+                                : p.managedBy === "mihomo"
+                                  ? "Mihomo 监听"
+                                  : "已启用"}
                       </span>
                     </td>
                     <td className="actions-cell">
@@ -1671,6 +1695,12 @@ export default function App() {
       Number(localStorage.getItem("ppm:refreshSeconds") || 0),
     ),
     [tick, setTick] = useState(0);
+  useEffect(() => {
+    const page = authenticated === false
+      ? "登录"
+      : authenticated === true ? NAV_ITEMS.find(([id]) => id === active)?.[1] : null;
+    document.title = `${page ? `${page} · ` : ""}代理端口管理 · Proxy Port Manager`;
+  }, [active, authenticated]);
   const addLog = useCallback(
     (text) =>
       setLogs((current) =>

@@ -40,8 +40,13 @@ export function restorePortState(nodes, listeners = [], saved = []) {
 
 export function enrichPort(port, nodes = []) {
   const normalized = normalizePort(port)
-  const selectedNodes = normalized.nodeIds.map(id => nodes.find(node => node.id === id)).filter(Boolean)
-  return { ...normalized, node: selectedNodes[0], nodes: selectedNodes, strategyMeta: PORT_STRATEGIES[normalized.strategy] }
+  const byId = new Map(nodes.map(node => [node.id, node]))
+  const selectedNodes = normalized.nodeIds.map(id => byId.get(id)).filter(Boolean)
+  const unavailableNodeIds = normalized.isGlobal ? [] : normalized.nodeIds.filter(id => !byId.has(id))
+  const nodeWarning = unavailableNodeIds.length
+    ? selectedNodes.length ? `部分节点已失效（${unavailableNodeIds.length}/${normalized.nodeIds.length}）` : '关联节点已失效'
+    : !normalized.isGlobal && !normalized.nodeIds.length ? '未配置节点' : ''
+  return { ...normalized, node: selectedNodes[0], nodes: selectedNodes, unavailableNodeIds, nodeWarning, strategyMeta: PORT_STRATEGIES[normalized.strategy] }
 }
 
 export function nextAvailablePort(ports, start = 17900, end = 17999) {
@@ -53,16 +58,16 @@ export function nextAvailablePort(ports, start = 17900, end = 17999) {
 export function filterPorts(ports, filters, nodes = []) {
   const query = filters.query.trim().toLowerCase()
   return ports.filter(rawPort => {
-    const port = normalizePort(rawPort)
-    const selectedNodes = port.nodeIds.map(id => nodes.find(item => item.id === id)).filter(Boolean)
-    if (!selectedNodes.length && !port.isGlobal) return false
+    const port = enrichPort(rawPort, nodes)
+    const selectedNodes = port.nodes
     if (port.isGlobal && filters.provider !== '全部订阅') return false
     if (port.isGlobal && filters.country !== '全部国家') return false
     if (filters.provider !== '全部订阅' && !selectedNodes.some(node => node.provider === filters.provider)) return false
     if (filters.country !== '全部国家' && !selectedNodes.some(node => node.country === filters.country)) return false
     if (filters.status === '在线' && !port.enabled) return false
     if (filters.status === '已停用' && port.enabled) return false
-    const haystack = [port.port, port.protocol, port.routeName, port.listenerName, port.isGlobal ? '系统配置 动态路由 全局监听' : '', PORT_STRATEGIES[port.strategy]?.label, ...selectedNodes.flatMap(node => [node.provider, node.country, node.name, node.code])]
+    if (filters.status === '节点异常' && !port.nodeWarning) return false
+    const haystack = [port.port, port.protocol, port.routeName, port.listenerName, port.nodeWarning, port.isGlobal ? '系统配置 动态路由 全局监听' : '', PORT_STRATEGIES[port.strategy]?.label, ...selectedNodes.flatMap(node => [node.provider, node.country, node.name, node.code])]
     return !query || haystack.join(' ').toLowerCase().includes(query)
   })
 }

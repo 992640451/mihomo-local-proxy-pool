@@ -169,6 +169,11 @@ tbody tr:hover td { background: rgba(255,255,255,.018); }.selected-row td { back
 .listener-check.idle .listener-check-status { color:#8a969e; }
 
 /* Multi-node port pools */
+.status-pill.warning { color:var(--amber-bright); background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.28); }
+.pool-summary small.node-warning { color:var(--amber-bright); }
+.node-warning-panel { margin-bottom:10px; padding:11px 12px; color:var(--amber-bright); border:1px solid rgba(245,158,11,.28); border-radius:3px; background:rgba(245,158,11,.06); font-size:11px; }
+.node-warning-panel p { margin:6px 0 10px; color:#b7a68c; line-height:1.6; }
+.pool-node.unavailable .flag, .pool-node.unavailable .node-copy strong { color:var(--amber-bright); }
 .pool-drawer { width:440px; }
 .strategy-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .strategy-card { min-height:62px; padding:9px 10px; display:flex; flex-direction:column; align-items:flex-start; gap:4px; color:#d8dfe3; text-align:left; border:1px solid var(--line); border-radius:3px; background:#0f1519; cursor:pointer; }

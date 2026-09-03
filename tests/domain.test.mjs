@@ -14,6 +14,35 @@ const ports = createInitialPorts(nodes)
 test('creates default ports from dynamic subscription nodes', () => assert.deepEqual(ports.map(p=>[p.port,p.nodeId]), [[17891,'jp-a'],[17892,'jp-b'],[17893,'us-a']]))
 test('allocates the first published embedded-core port', () => assert.equal(nextAvailablePort(ports),17900))
 test('filters ports using dynamic countries', () => assert.deepEqual(filterPorts(ports,{provider:'全部订阅',country:'日本',status:'全部状态',query:'节点 A'},nodes).map(p=>p.port),[17891]))
+test('keeps configured ports visible after all their subscription nodes disappear', () => {
+  const orphaned = { id:'embedded-listener-17901', port:17901, nodeIds:['old-a','old-b'], enabled:true, managedBy:'embedded-mihomo' }
+  const filters = { provider:'全部订阅', country:'全部国家', status:'全部状态', query:'' }
+  assert.deepEqual(filterPorts([orphaned], filters, nodes), [orphaned])
+  assert.deepEqual(filterPorts([orphaned], { ...filters, query:'17901' }, []).map(p => p.port), [17901])
+  assert.deepEqual(filterPorts([orphaned], { ...filters, query:'失效' }, nodes), [orphaned])
+  assert.equal(filterPorts([orphaned], { ...filters, provider:'示例订阅 A' }, nodes).length, 0)
+  assert.equal(filterPorts([orphaned], { ...filters, country:'日本' }, nodes).length, 0)
+  const enriched = enrichPort(orphaned, nodes)
+  assert.equal(enriched.nodeWarning, '关联节点已失效')
+  assert.deepEqual(enriched.unavailableNodeIds, ['old-a','old-b'])
+  assert.deepEqual(enriched.nodeIds, orphaned.nodeIds)
+})
+
+test('reports partial node loss and filters abnormal ports independently of enabled state', () => {
+  const partial = { port:17900, nodeIds:['jp-a','old-a'], enabled:true }
+  const disabled = { port:17901, nodeIds:['old-b'], enabled:false }
+  const global = { port:17891, isGlobal:true, nodeIds:[], enabled:true }
+  const unconfigured = { port:17902, nodeIds:[], enabled:true }
+  const filters = { provider:'全部订阅', country:'全部国家', status:'节点异常', query:'' }
+  assert.equal(enrichPort(partial, nodes).nodeWarning, '部分节点已失效（1/2）')
+  assert.equal(enrichPort(partial, nodes).node.id, 'jp-a')
+  assert.deepEqual(filterPorts([...ports, partial, disabled, global, unconfigured], filters, nodes).map(p => p.port), [17900,17901,17902])
+  assert.deepEqual(filterPorts([partial, disabled], { ...filters, status:'已停用' }, nodes).map(p => p.port), [17901])
+  assert.deepEqual(filterPorts([partial, disabled], { ...filters, provider:'示例订阅 A' }, nodes).map(p => p.port), [17900])
+  assert.equal(enrichPort(global, []).nodeWarning, '')
+  assert.equal(enrichPort(unconfigured, []).nodeWarning, '未配置节点')
+  assert.equal(enrichPort(ports[0], nodes).nodeWarning, '')
+})
 test('keeps the global mixed port visible without assigning a fake node or country', () => {
   const globalPort={id:'mihomo-mixed-7897',port:7897,protocol:'MIXED',nodeId:'',nodeIds:[],isGlobal:true,routeName:'规则模式 · 动态路由',listenerName:'MIXED-PORT',enabled:true,managedBy:'mihomo'}
   assert.equal(enrichPort(globalPort,nodes).node,undefined)
