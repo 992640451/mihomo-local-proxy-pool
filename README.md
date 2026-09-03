@@ -44,8 +44,16 @@
 
 适合本地开发、爬虫、自动化工具或任何需要稳定 HTTP / SOCKS5 代理入口的应用。
 
-自动化入口已提供 `/api/v1`、OpenAPI、可撤销的作用域令牌，以及 `ppm doctor / backup / restore / ports list / subscriptions refresh`。
-配置恢复默认先预检增改删和缺失节点，再显式应用；使用方法见 [自动化指南](AUTOMATION.md)。
+## 1.2.0 更新重点
+
+本分支版本为 **1.2.0**；已公开的安装包及镜像以 [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases) 为准。更新源码不会自动更新已发布的安装包。
+
+- **节点与端口可观测性**：真实节点健康、批量延迟测试、端口验证历史和 24 小时失败趋势。后台检测默认关闭，可按需开启并限制流量与历史容量。
+- **脚本自动化**：提供 `/api/v1`、OpenAPI、可撤销的作用域令牌，以及 `ppm doctor / backup / restore / ports list / subscriptions refresh`。
+- **恢复前预检**：先查看订阅、节点和端口的增改删，再用有效期为 10 分钟的签名计划显式应用；配置变化后必须重新预检。
+- **可靠性修复**：订阅变更在 Mihomo 确认重载后才提交，失败恢复原状态；加强 YAML 错误、历史审计脱敏和调度器异常诊断。
+
+详细用法见 [可观测性](OBSERVABILITY.md)、[自动化 API 与 CLI](AUTOMATION.md) 和 [完整变更记录](CHANGELOG.md)。
 
 > [!IMPORTANT]
 > 本项目只管理你有权使用的订阅，不提供代理节点。默认仅监听 `127.0.0.1`，定位是单机、本地代理池，不是公网代理服务。
@@ -59,7 +67,7 @@
 
 ### Windows 便携部署
 
-从 Releases 下载与系统架构匹配的便携 ZIP，解压后运行：
+从 [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases) 下载与系统架构匹配的便携 ZIP（x64 或 arm64），解压到可写目录后运行：
 
 ```powershell
 .\ppm.cmd start
@@ -74,7 +82,21 @@
 .\ppm.cmd stop
 ```
 
-便携版把订阅、密钥、会话和端口池保存在解压目录的 `data` 文件夹中。更新时请保留该目录。详细说明见 [便携部署文档](PORTABLE.md)。
+便携版把订阅、密钥、会话和端口池保存在解压目录的 `data` 文件夹中。更新前先停止服务并备份该目录，不要用新包覆盖它。详细说明见 [便携部署文档](PORTABLE_ZH.md)。
+
+### Linux / macOS 便携部署
+
+下载对应系统与架构（x64 或 arm64）的 `.tar.gz`，解压后进入目录：
+
+```bash
+./ppm start
+# 无需自动打开浏览器时：
+./ppm start --background --no-open
+./ppm status
+./ppm stop
+```
+
+默认管理地址同样为 `http://127.0.0.1:4173`。首次启动即使使用后台模式，管理密码也只在当前终端显示一次，请立即保存。
 
 ### Docker Compose
 
@@ -114,9 +136,12 @@ curl http://127.0.0.1:4173/healthz
 
 1. 打开左侧 **订阅**，填写订阅 URL，或粘贴 Mihomo / Clash YAML。
 2. 打开 **代理端口**，点击 **新建端口池**。
-3. 使用端口 `17900`，协议选择 `Mixed`，再选择至少一个节点。
-4. 保存后点击 **检测**；显示“监听可连接”即表示端口可用。
+3. 使用端口 `17900`，协议选择 `Mixed`。只选一个节点时，策略设为 **手动选择**；保留默认 **主备切换** 时至少选择两个节点。
+4. 保存后点击 **检测**，确认显示“监听可连接”。
 5. 点击端口旁对应协议的图标按钮，把代理地址粘贴到需要代理的应用中。
+6. 在 **节点** 测试所选节点延迟，在 **可观测性** 查看验证历史；需要定时检测时再手动开启后台检测。
+
+“监听可连接”仅说明端口接受连接；请再点击 **验证** 检查是否能通过代理访问出口查询服务。节点“测速”测量请求延迟，不是下载带宽。
 
 想使用轮询时，选择至少两个节点，并把策略改成 **轮询均衡**。轮询只对新连接生效，已建立的 TCP 连接不会在节点之间迁移。
 
@@ -178,6 +203,7 @@ ALL_PROXY=socks5h://127.0.0.1:17900
 - 会话、订阅和端口池持久化，容器重建后仍可恢复。
 - 口令加密的配置备份与失败自动回滚。
 - 持久化操作审计与脱敏系统诊断导出。
+- 带作用域的 API 令牌、版本化 API、OpenAPI 和脚本命令；恢复预检与显式应用。
 - 可选迁移 Clash Verge 远程订阅。
 
 ## 它如何工作
@@ -236,17 +262,18 @@ docker compose up -d --force-recreate proxy-port-manager
 
 - `.env` 包含本机密钥，已被 Git 忽略，请勿分享。
 - 订阅 URL、原始 YAML 和节点敏感字段使用 AES-256-GCM 加密后写入 SQLite。
-- “系统设置”可以下载口令加密恢复包；恢复会替换当前订阅和端口池，但不会导入登录会话或操作记录。
+- “系统设置”可以下载口令加密恢复包；恢复是整体替换，包中没有的资源会被删除，必须先预检。恢复包不包含管理认证、会话、API 令牌、审计、检测历史或检测调度设置，也不修改目标机器的端口映射。
 - 恢复包原始数据上限为 24 MiB，加密文件上限为 33 MiB；超限时会拒绝导出，避免生成无法导入的备份。
 - “操作记录”保存在服务端并在写入前脱敏；诊断导出不包含完整订阅 URL、节点凭据、Cookie 或控制器密钥。
 - 默认 Compose 只绑定 `127.0.0.1`；不要在没有额外认证和网络隔离时改成 `0.0.0.0`。
-- `proxy-session-data` 保存订阅、会话、审计和端口池；`proxy-mihomo-data` 保存 Mihomo 运行配置。
+- `proxy-session-data` 保存订阅、会话、API 令牌摘要、审计、检测历史/设置和端口池；`proxy-mihomo-data` 保存 Mihomo 运行配置。
+- 管理登录不等同于代理端口认证。API 令牌只在创建时显示一次，应按脚本分配最小权限，不要放入命令参数、仓库或日志。
 
 安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 从 Clash Verge 迁移
 
-新安装不依赖 Clash Verge。如果需要导入 Clash Verge 的远程订阅，请阅读 [Docker 部署文档](DOCKER.md)。迁移完成后应切回默认的原生订阅模式。
+新安装不依赖 Clash Verge。如果需要导入 Clash Verge 的远程订阅，请阅读 [Docker 部署文档](DOCKER_ZH.md)。迁移完成后应切回默认的原生订阅模式。
 
 ## 常见问题
 
@@ -287,7 +314,24 @@ npm run build
 npm run dev
 ```
 
-更多内容： [Docker 部署](DOCKER.md) · [发布指南](RELEASING.md) · [变更记录](CHANGELOG.md) · [贡献指南](CONTRIBUTING.md) · [安全政策](SECURITY.md)
+开发服务默认使用前端 `4173`、API `4180`；不要与同端口的 Docker / 便携实例同时启动。实际代理功能还需配置可用的 Mihomo。仅检查界面时可在构建后运行 `node tests/helpers/observability-preview.mjs --auth`，使用其隔离的临时数据与模拟核心，详见 [自动化指南](AUTOMATION.md)。
+
+## 文档导航
+
+保留已有文档文件名，每篇指南均提供对应语言链接。英文文档不代表管理界面已提供英文翻译；当前界面主要使用中文。
+
+| 主题 | 简体中文 | English |
+| --- | --- | --- |
+| Docker 部署 | [阅读](DOCKER_ZH.md) | [Read](DOCKER.md) |
+| 便携部署 | [阅读](PORTABLE_ZH.md) | [Read](PORTABLE.md) |
+| 可观测性 | [阅读](OBSERVABILITY.md) | [Read](OBSERVABILITY_EN.md) |
+| 自动化 API 与 CLI | [阅读](AUTOMATION.md) | [Read](AUTOMATION_EN.md) |
+| 发布流程与校验 | [阅读](RELEASING.md) | [Read](RELEASING_EN.md) |
+| 变更记录 | [阅读](CHANGELOG.md) | [Read](CHANGELOG_EN.md) |
+| 贡献指南 | [阅读](CONTRIBUTING.md) | [Read](CONTRIBUTING_EN.md) |
+| 安全政策 | [阅读](SECURITY.md) | [Read](SECURITY_EN.md) |
+| 架构与演进 | [阅读](docs/ARCHITECTURE.md) | [Read](docs/ARCHITECTURE_EN.md) |
+| 第三方声明 | [阅读](THIRD_PARTY_NOTICES_ZH.md) | [Read](THIRD_PARTY_NOTICES.md) |
 
 ## 项目状态
 

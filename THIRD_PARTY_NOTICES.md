@@ -1,5 +1,7 @@
 # Third-party notices
 
+[简体中文](THIRD_PARTY_NOTICES_ZH.md) · English
+
 Portable distributions include the following separately licensed components:
 
 - Node.js, licensed under the Node.js license. Source and license information:

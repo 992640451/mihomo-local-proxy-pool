@@ -1,7 +1,7 @@
 services:
   proxy-port-manager:
     container_name: proxy-port-manager
-    image: proxy-port-manager:1.1.0
+    image: proxy-port-manager:1.2.0
     build:
       context: .
       dockerfile: Dockerfile

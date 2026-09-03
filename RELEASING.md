@@ -1,10 +1,12 @@
 # 发布工程
 
-M2 是路线图阶段名，不是降级版本指令。当前待发布版本为 1.1.0；后续发布使用新的语义化版本，不覆盖已有公开版本。
+简体中文 · [English](RELEASING_EN.md)
+
+本文以 **1.2.0** 为例。M2 是发布工程的路线图阶段名，不是应用版本。版本准备、本地提交、推送标签和公开 Release 是不同步骤；更新版本号并不代表已发布。后续发布使用新的语义化版本，不覆盖已有公开版本。
 
 ## 发布前准备
 
-1. 在同一提交中更新 `package.json`、`package-lock.json` 根版本，以及 `CHANGELOG.md` 的对应版本章节。
+1. 在同一提交中更新 `package.json`、`package-lock.json` 顶层与 `packages[""]` 版本、`compose.yaml` 管理服务镜像标签，以及 `CHANGELOG.md` / `CHANGELOG_EN.md` 的对应非空版本章节。同步双语 README 和指南；API v1 合同版本不随应用次版本自动变化。
 2. 等待 CI 通过：单元/集成测试、Web 构建、Docker 启停测试，以及 Windows/Linux x64 最终便携包测试。
 3. 核对 `release/core-manifest.json`：每个目标必须来自同一个 Mihomo 版本并有 SHA-256。升级核心时也同步 Compose 的核心版本和订阅 User-Agent。
 4. 核对 Release 工作流的 Node 版本与 Dockerfile。Windows/Linux/macOS 均支持 x64 和 arm64；在原生 runner 构建，不交叉复制宿主 Node。
@@ -19,6 +21,31 @@ M2 是路线图阶段名，不是降级版本指令。当前待发布版本为 1
 - 本地运行构建和验证脚本不会发布任何东西。不要把 `.env` 或真实订阅放入构建上下文。
 
 普通 CI 和独立 M2 Acceptance 流程的触发规则保持不变。历史标签中的旧工作流及已有取消记录不会被本次修改重写；新版本标签应指向包含最新发布配置的提交。
+
+### 手动发布 1.2.0
+
+以下操作供具备仓库写入权限的维护者在版本准备已审核、提交已完成后执行。工作区应干净，`HEAD` 必须是要发布的提交，包与双语变更记录均为 1.2.0。
+
+```bash
+git status --short
+npm run release:validate -- --tag v1.2.0
+git push origin main
+git tag -a v1.2.0 -m "发布 1.2.0"
+git push origin v1.2.0
+git ls-remote --tags origin refs/tags/v1.2.0
+```
+
+先等待目标提交的 CI 通过。登录 [Actions → Release](https://github.com/992640451/mihomo-local-proxy-pool/actions/workflows/release.yml)，点击 **Run workflow**：分支选择 `main`，`tag` 填写 `v1.2.0`，默认不勾选 `publish`。这会构建并验证草稿，但不推送镜像。
+
+也可以使用已登录的 GitHub CLI：
+
+```bash
+gh workflow run release.yml --repo 992640451/mihomo-local-proxy-pool --ref main -f tag=v1.2.0 -f publish=false
+```
+
+审核草稿后，以相同标签重新运行并设置 `publish=true`（或在网页勾选）。这会重新执行验证与构建，通过后推送 GHCR 并公开 Release；不要只在 Release 页面点击发布草稿来代替该流程，否则不会执行镜像发布。
+
+`tag` 输入框**不会创建标签**。填写尚未推送的标签会在 `actions/checkout` 阶段失败，后续构建跳过。裸版本 `1.2.0` 不是有效标签格式。已公开的 `v1.1.0` 指向旧源码，既不会包含新功能，也会被防覆盖校验拒绝；不要移动旧标签来发布新代码。
 
 手动运行采用所选工作流提交中的发布脚本，源码固定到指定标签的提交；两者可能不同。构建证明记录工作流来源，`.build.json` 记录实际应用源码 SHA。M2 全链路要求目标源码包含构建信息模块与对应 Dockerfile；更老标签请用其兼容版本的工作流，不要给历史二进制伪造新元数据。
 
@@ -56,15 +83,17 @@ M2 是路线图阶段名，不是降级版本指令。当前待发布版本为 1
 npm ci
 npm test
 npm run build
-npm run release:validate -- --tag v1.1.0
+npm run release:validate -- --tag v1.2.0
 npm run portable:package
-node scripts/prepare-release-asset.mjs --source-root . --output .artifacts/verified --version 1.1.0 --platform windows --arch x64 --require-verified-core
+node scripts/prepare-release-asset.mjs --source-root . --output .artifacts/verified --version 1.2.0 --platform windows --arch x64 --require-verified-core
 node scripts/create-checksums.mjs --directory .artifacts/verified --expected 1
 npm run docker:update
-node scripts/smoke-container.mjs --image proxy-port-manager:1.1.0 --version 1.1.0
+node scripts/smoke-container.mjs --image proxy-port-manager:1.2.0 --version 1.2.0
 ```
 
 按实际版本及宿主平台调整参数；平台名为 `windows`、`linux`、`macos`。`portable:package` 要求 Web 构建已完成。`--core` 可供本地定制构建，但不标记为清单验证，公开发布门禁会拒绝该包。源码模式缺少 `build-info.json` 时显示“未注入”，不会把启动时间冒充构建时间。
+
+本地 `release:validate` 不带 `--check-remote` 时只验证版本、变更记录和构建元数据，不要求标签已存在，也不确认远端是否已发布。Release 工作流才会额外校验真实标签与公开状态。
 
 ## 校验下载与使用镜像
 

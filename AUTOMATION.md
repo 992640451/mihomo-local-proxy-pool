@@ -1,7 +1,8 @@
-# M4：自动化 API 与 CLI
+# 自动化 API 与 CLI
 
-M4 增加 `/api/v1`、带作用域的 API 令牌、OpenAPI 合同和 `ppm` 自动化命令。
-这是功能里程碑，不修改当前应用的发布版本。
+简体中文 · [English](AUTOMATION_EN.md)
+
+1.2.0 提供 `/api/v1`、带作用域的 API 令牌、OpenAPI 合同和 `ppm` 自动化命令（原路线图 M4）。应用版本与 API 主版本独立：应用升级到 1.2.0 不会把接口路径改成 `/api/v1.2`。
 
 ## 创建与撤销令牌
 

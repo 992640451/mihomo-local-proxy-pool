@@ -44,8 +44,16 @@ Your application only needs one local address. Proxy Port Manager and Mihomo han
 
 It is designed for local development, crawlers, automation tools, and applications that need a stable HTTP or SOCKS5 proxy entry.
 
-Automation includes `/api/v1`, OpenAPI, revocable scoped API tokens, and `ppm doctor / backup / restore / ports list / subscriptions refresh`.
-Restore defaults to a dry-run diff and requires an explicit saved plan to apply. See [AUTOMATION.md](AUTOMATION.md) for scopes, environment variables, safety limits and examples.
+## What's new in 1.2.0
+
+This branch is version **1.2.0**. Available public bundles and images are listed under [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases). Updating source code does not automatically update published downloads.
+
+- **Node and port observability**: measured node health, batch latency tests, port verification history, and 24-hour failure trends. Background probes are off by default, with configurable traffic and history limits.
+- **Script automation**: `/api/v1`, OpenAPI, revocable scoped tokens, and `ppm doctor / backup / restore / ports list / subscriptions refresh`.
+- **Restore planning**: review subscription, node, and port additions, changes, and deletions before explicitly applying a signed plan. Plans expire after 10 minutes and must be regenerated if configuration changes.
+- **Reliability fixes**: subscription changes commit only after Mihomo confirms reload, with rollback on failure; improved YAML-error and historical-audit redaction and scheduler diagnostics.
+
+See [Observability](OBSERVABILITY_EN.md), [Automation API and CLI](AUTOMATION_EN.md), and the [full changelog](CHANGELOG_EN.md).
 
 > [!IMPORTANT]
 > This project manages subscriptions you are authorized to use. It does not provide proxy nodes. It binds to `127.0.0.1` by default and is intended for a single-machine local proxy pool, not a public proxy service.
@@ -59,13 +67,36 @@ Proxy Port Manager supports two local deployment modes:
 
 ### Windows portable deployment
 
-Download and extract the portable ZIP for your architecture, then run:
+Download the portable ZIP for your architecture (x64 or arm64) from [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases), extract it into a writable directory, then run:
 
 ```powershell
 .\ppm.cmd start
 ```
 
-Use `start --background`, `status`, `open`, and `stop` to manage a background instance. Portable state is stored in the `data` directory beside the launcher. See [PORTABLE.md](PORTABLE.md) for details.
+The first start prints a generated administrator password and opens your browser after Mihomo and the management service are ready. Save the password. To manage a background instance:
+
+```powershell
+.\ppm.cmd start --background
+.\ppm.cmd status
+.\ppm.cmd open
+.\ppm.cmd stop
+```
+
+Portable state is stored in the `data` directory beside the launcher. Stop the service and back up that directory before upgrading; do not overwrite it with the new bundle. See [Portable deployment](PORTABLE.md).
+
+### Linux / macOS portable deployment
+
+Download the `.tar.gz` for your system and architecture (x64 or arm64), extract it, and enter the directory:
+
+```bash
+./ppm start
+# To run without automatically opening a browser:
+./ppm start --background --no-open
+./ppm status
+./ppm stop
+```
+
+The default management URL is also `http://127.0.0.1:4173`. Even in background mode, the generated password is shown only once in the current terminal on first start. Save it immediately.
 
 ### Docker Compose
 
@@ -103,11 +134,14 @@ The management service is ready when the response contains `status: ok`.
 
 ## First use
 
-1. Open **Subscriptions** and enter a subscription URL or paste Mihomo / Clash YAML.
-2. Open **Proxy Ports** and select **Create Port Pool**.
-3. Use port `17900`, choose `Mixed`, and select at least one node.
-4. Save, then run **Check**. “Listener reachable” means the port is ready.
+1. Open **Subscriptions (订阅)** and enter a subscription URL or paste Mihomo / Clash YAML.
+2. Open **Proxy Ports (代理端口)** and select **Create Port Pool (新建端口池)**.
+3. Use port `17900` and choose `Mixed`. For one node, select **Manual (手动选择)**; the default **Failover (主备切换)** requires at least two nodes.
+4. Save, then run **Check (检测)** and confirm it reports “Listener reachable”.
 5. Use the protocol icon beside the port and paste the proxy address into your application.
+6. Test selected nodes in **Nodes (节点)** and view verification history in **Observability (可观测性)**. Enable background probes explicitly if needed.
+
+“Listener reachable” only confirms that a port accepts connections. Also click **Verify (验证)** to check access to the exit-lookup service through the proxy. Node tests measure request latency, not download bandwidth.
 
 For round-robin routing, select at least two nodes and choose **Round Robin**. Round robin applies to new connections; an established TCP connection does not move between nodes.
 
@@ -160,16 +194,16 @@ Automatic strategies only use nodes that pass health checks. The service rejects
 
 ## Core features
 
-- Live node health, bounded batch latency tests, persistent port verification history, and 24-hour failure trends. Background probes are off by default; see the [observability guide (Chinese)](OBSERVABILITY.md).
-
 - Import subscription URLs or paste Mihomo / Clash YAML.
 - Encrypted subscription storage with last-known-good fallback.
 - HTTP, SOCKS5, and Mixed local port pools.
 - Health checks, failed-node skipping, and Mihomo hot reload.
 - Listener checks and multi-connection exit-distribution verification.
+- Live node health, bounded batch latency tests, persistent port verification history, and 24-hour failure trends. Background probes are off by default; see the [observability guide](OBSERVABILITY_EN.md).
 - Persistent sessions, subscriptions, and port-pool state.
 - Passphrase-encrypted configuration backups with automatic rollback on restore failure.
 - Persistent server-side audit events and redacted diagnostic exports.
+- Scoped API tokens, a versioned API, OpenAPI, and automation commands; restore planning and explicit application.
 - Optional migration from Clash Verge remote subscriptions.
 
 ## How it works
@@ -228,13 +262,14 @@ This resets only administrator credentials and preserves the subscription encryp
 
 - `.env` contains machine-local secrets, is ignored by Git, and must not be shared.
 - Subscription URLs, raw YAML, and sensitive node fields are encrypted with AES-256-GCM before being stored in SQLite.
-- System Settings can download a passphrase-encrypted recovery package. Restoring replaces subscriptions and port pools, but never imports login sessions or audit events.
+- System Settings can download a passphrase-encrypted recovery package. Restore is a full replacement: resources missing from the package are deleted, so preview the plan first. The package excludes administrator credentials, sessions, API tokens, audit events, observation history and probe schedules, and does not change the target host's port mappings.
 - Recovery payloads are limited to 24 MiB and encrypted files to 33 MiB. Oversized payloads are rejected during export so backups remain importable.
 - Audit events are redacted before storage. Diagnostic exports exclude complete subscription URLs, node credentials, cookies, and controller secrets.
 - Compose binds to `127.0.0.1` by default. Do not change it to `0.0.0.0` without additional authentication and network isolation.
-- `proxy-session-data` stores subscriptions, sessions, audit events, and pools; `proxy-mihomo-data` stores Mihomo runtime configuration.
+- `proxy-session-data` stores subscriptions, sessions, API-token digests, audit events, observation history/settings, and pools; `proxy-mihomo-data` stores Mihomo runtime configuration.
+- Management login does not authenticate proxy traffic. API secrets are shown only once; give each script the minimum scopes it needs and keep secrets out of command arguments, repositories, and logs.
 
-Report security issues privately according to [SECURITY.md](SECURITY.md).
+Report security issues privately according to the [security policy](SECURITY_EN.md).
 
 ## Migrate from Clash Verge
 
@@ -279,7 +314,24 @@ npm run build
 npm run dev
 ```
 
-More: [Docker deployment](DOCKER.md) · [Release guide](RELEASING.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+Development uses frontend port `4173` and API port `4180`; do not start it alongside a Docker or portable instance using those ports. Actual proxy features also require a configured Mihomo instance. For isolated UI checks after building, use `node tests/helpers/observability-preview.mjs --auth` with temporary data and a mock core; see the [automation guide](AUTOMATION_EN.md).
+
+## Documentation
+
+Existing filenames are preserved, and each guide links to its translation. English documentation does not imply an English UI: the management interface currently uses primarily Chinese labels.
+
+| Topic | 简体中文 | English |
+| --- | --- | --- |
+| Docker deployment | [阅读](DOCKER_ZH.md) | [Read](DOCKER.md) |
+| Portable deployment | [阅读](PORTABLE_ZH.md) | [Read](PORTABLE.md) |
+| Observability | [阅读](OBSERVABILITY.md) | [Read](OBSERVABILITY_EN.md) |
+| Automation API and CLI | [阅读](AUTOMATION.md) | [Read](AUTOMATION_EN.md) |
+| Releases and verification | [阅读](RELEASING.md) | [Read](RELEASING_EN.md) |
+| Changelog | [阅读](CHANGELOG.md) | [Read](CHANGELOG_EN.md) |
+| Contributing | [阅读](CONTRIBUTING.md) | [Read](CONTRIBUTING_EN.md) |
+| Security policy | [阅读](SECURITY.md) | [Read](SECURITY_EN.md) |
+| Architecture and evolution | [阅读](docs/ARCHITECTURE.md) | [Read](docs/ARCHITECTURE_EN.md) |
+| Third-party notices | [阅读](THIRD_PARTY_NOTICES_ZH.md) | [Read](THIRD_PARTY_NOTICES.md) |
 
 ## Project status
 

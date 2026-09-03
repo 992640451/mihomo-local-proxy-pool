@@ -1,6 +1,8 @@
-# M3：可观测性
+# 可观测性
 
-适用于默认 Docker 和便携版的内置 Mihomo 模式。此里程碑不修改应用发布版本号，不包含 webhook 或外部通知。
+简体中文 · [English](OBSERVABILITY_EN.md)
+
+1.2.0 的可观测性功能（原路线图 M3）适用于默认 Docker 和便携版的内置 Mihomo 模式，不包含 webhook 或外部通知。
 
 ## 使用
 

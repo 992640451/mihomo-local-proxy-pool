@@ -1,9 +1,11 @@
 # Docker deployment
 
+[简体中文](DOCKER_ZH.md) · English
+
 The production stack serves the React application and Express API on
 `127.0.0.1:4173` and runs a dedicated Mihomo sidecar. Proxy listeners are
 published on the local-only TCP/UDP ranges `127.0.0.1:17891-17893` and
-`127.0.0.1:17900-17999`. Port `17894` is left to the existing local service.
+`127.0.0.1:17900-17999`. Port `17894` is outside the default published ranges.
 
 ## Start
 
@@ -68,12 +70,16 @@ not part of a configuration recovery package.
 System Settings can create a passphrase-encrypted JSON recovery package that
 contains subscriptions, their encrypted-at-rest source material in re-encrypted
 portable form, stable node IDs, and managed port pools. Login sessions and audit
-events are deliberately excluded. A restore validates and decrypts the whole
-package before changing data; if applying the restored Mihomo state fails, the
-service restores the previous subscriptions and port configuration.
+events, administrator credentials, API tokens, observation history and probe
+schedules are deliberately excluded. Restore requires reviewing a diff first,
+then explicitly applying a signed plan within 10 minutes. A configuration change
+invalidates the plan. Restore replaces the entire configuration, deleting resources
+absent from the package; it does not change container port mappings. On apply or
+core reload failure, the service attempts to roll back. If rollback also fails,
+inspect the reported error and actual state instead of retrying blindly.
 
-The same page checks subscription, session and audit databases, the refresh
-scheduler, Mihomo controller, catalog consistency, and writable storage. Its
+The same page checks subscription, session, API-token, audit and observation
+databases, both schedulers, Mihomo controller, catalog consistency, and writable storage. Its
 downloadable diagnostics are redacted and safe to inspect before attaching to a
 public issue. Always inspect the file yourself before sharing it.
 
@@ -91,9 +97,45 @@ Management endpoints (all protected by the existing login session) are:
 - `POST /api/subscriptions/refresh-all`
 - `DELETE /api/subscriptions/:id`
 
-Containers in another Compose project can use, for example,
-`http://host.docker.internal:17892`. Host applications use
-`http://127.0.0.1:17892`.
+Host applications use, for example, `http://127.0.0.1:17900` after creating that
+listener. A container's `127.0.0.1` refers to itself; host-loopback published ports
+are not a portable cross-container endpoint. Do not assume
+`host.docker.internal` can access them. Cross-project container access requires
+an explicitly designed private network and access controls; do not expose host
+ports on `0.0.0.0` just to make a container connect.
+
+## Observability and automation
+
+Version 1.2.0 adds node latency tests, port history, and 24-hour failure trends.
+Background probes are off by default. Settings and history persist in
+`/data/observability.sqlite`; active probes contact the configured test services
+through your proxies. See [Observability](OBSERVABILITY_EN.md) for limits and privacy.
+
+Create a token in System Settings → API tokens. Token digests persist in
+`/data/api-tokens.sqlite`. Use `/api/v1` or run the CLI from a source checkout or
+portable bundle, pointing `PPM_API_URL` at `http://127.0.0.1:4173` on the host.
+The container image does not include the launcher. See [Automation](AUTOMATION_EN.md)
+for scopes, credential files, backup and restore planning.
+
+## Update and stop
+
+Back up your data before upgrading. For a consistent full data-directory backup,
+stop the stack first; the encrypted configuration export does not include every
+database. Keep `.env` and both named volumes.
+
+```bash
+git pull --ff-only
+npm run docker:update
+docker compose ps
+# Stop without deleting data:
+docker compose down
+```
+
+`docker:update` rebuilds and recreates only the management service, waits for its
+health check, and preserves the Mihomo container and volumes. During development,
+keep `npm run docker:watch` running in a separate terminal. Never use
+`docker compose down -v` unless you intend to delete the persistent data.
+For digest-pinned GHCR deployment, see [Release engineering](RELEASING_EN.md).
 
 ## Persistent login sessions
 
@@ -141,8 +183,15 @@ the usable token itself. `AUTH_SESSION_IDLE_SECONDS` controls inactivity expiry,
 Increment `AUTH_SESSION_VERSION` to revoke all existing sessions without changing
 the account password.
 
-### 登录状态记忆
+### Remembered login
 
-登录页默认勾选“记住密码”。服务端不会保存明文密码，而是签发随机的 HttpOnly 会话凭证；该凭证默认可在 30 天内恢复登录，并在退出登录、密码版本变化或到期后立即失效。取消勾选时只签发浏览器会话 Cookie，关闭浏览器后需要重新登录。
+The login page selects “Remember password” (记住密码) by default. The server does
+not store the plaintext password; it issues a random HttpOnly session cookie,
+valid for up to 30 days by default. Logout, credential-version changes, or expiry
+invalidate it. Without this option, the cookie is a browser-session cookie;
+browser session-restoration behavior can affect whether it survives closing a window.
 
-可通过 `AUTH_REMEMBER_IDLE_SECONDS` 和 `AUTH_REMEMBER_MAX_SECONDS` 调整长期会话的空闲与绝对有效期。普通会话继续使用 `AUTH_SESSION_IDLE_SECONDS` 和 `AUTH_SESSION_MAX_SECONDS`。
+Use `AUTH_REMEMBER_IDLE_SECONDS` and `AUTH_REMEMBER_MAX_SECONDS` for remembered
+sessions. Ordinary sessions use `AUTH_SESSION_IDLE_SECONDS` and
+`AUTH_SESSION_MAX_SECONDS`. Changing administrator credentials or
+`AUTH_SESSION_VERSION` also invalidates existing API tokens.

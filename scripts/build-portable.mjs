@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { fetchMihomo } from './fetch-mihomo.mjs'
 import { tarCommand } from './archive-tools.mjs'
+import { copyDocumentation } from './documentation-files.mjs'
 import { buildMetadata, capture, executableComponent, extendSbom, writeJson } from './build-metadata.mjs'
 
 const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -65,7 +66,8 @@ async function main() {
 
   const appFiles = ['server', 'shared', 'scripts', 'dist', 'package.json', 'package-lock.json']
   for (const value of appFiles) await cp(path.join(projectRoot, value), path.join(stage, 'app', value), { recursive: true })
-  for (const value of ['README.md', 'PORTABLE.md', 'AUTOMATION.md', 'THIRD_PARTY_NOTICES.md', 'LICENSE', 'ppm.cmd', 'ppm']) {
+  await copyDocumentation(projectRoot, stage)
+  for (const value of ['ppm.cmd', 'ppm']) {
     await cp(path.join(projectRoot, value), path.join(stage, value))
   }
   const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
