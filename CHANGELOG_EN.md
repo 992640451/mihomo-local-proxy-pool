@@ -18,10 +18,13 @@ Public versions follow semantic versioning. This file records user-facing behavi
 
 ### Fixed
 
+- Configured ports remain visible when subscription nodes disappear, with warnings for complete or partial node loss. Users can filter affected ports and inspect or remove unavailable nodes while editing; existing port configuration is preserved until saved.
 - Updated the transitive `qs` dependency from 6.15.3 to 6.16.0, addressing upstream denial-of-service issues in query parsing and serialization.
 
 ### Improved
 
+- Pushing a `v*` version tag automatically runs validation, six-platform portable builds, dual-architecture container tests, GHCR publication and Release publication. Manual runs still default to drafts; tag deletions are skipped and public versions remain protected against overwrites.
+- Browser titles reflect login state and the active page. Updated the README banner, download navigation and shell-specific command examples.
 - The Docker development update command preserves updater enrollment and data volumes, and refuses recreation while a web update is pending.
 - Chinese and English instructions for upgrades, initial enrollment and recovery. Existing users must manually install a version with the updater once before future web updates are available.
 

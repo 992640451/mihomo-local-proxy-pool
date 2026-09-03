@@ -124,22 +124,27 @@ test('checksums include matching SBOM and metadata, exclude the checksum itself'
   assert.equal(await readFile(path.join(root, 'SHA256SUMS.txt'), 'utf8'), checksums)
 })
 
-test('release workflow is manual-only with an explicit tag and a safe publish default', async () => {
+test('release workflow builds version tags automatically and retains manual drafts', async () => {
   const workflow = YAML.parse(await readFile('.github/workflows/release.yml', 'utf8'))
-  assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch'])
+  assert.deepEqual(Object.keys(workflow.on), ['push', 'workflow_dispatch'])
+  assert.deepEqual(workflow.on.push, { tags: ['v*'] })
   const inputs = workflow.on.workflow_dispatch.inputs
   assert.equal(inputs.tag.required, true)
   assert.equal(inputs.tag.type, 'string')
   assert.equal(inputs.publish.type, 'boolean')
   assert.equal(inputs.publish.default, false)
-  assert.equal(workflow.concurrency.group, 'release-${{ inputs.tag }}')
+  assert.equal(workflow.concurrency.group, 'release-${{ inputs.tag || github.ref_name }}')
   assert.equal(workflow.concurrency['cancel-in-progress'], false)
-  assert.equal(workflow.env.RELEASE_TAG, '${{ inputs.tag }}')
+  assert.equal(workflow.env.RELEASE_TAG, '${{ inputs.tag || github.ref_name }}')
+  assert.equal(workflow.env.PUBLISH_RELEASE, "${{ (github.event_name == 'push' && !github.event.deleted) || (github.event_name == 'workflow_dispatch' && inputs.publish == true) }}")
+  assert.equal(workflow.jobs.validate.if, "github.event_name != 'push' || !github.event.deleted")
   assert.equal(workflow.env.TOOLING_REF, '${{ github.sha }}')
 })
 
 test('release workflow gates publication behind portable and container smoke tests', async () => {
   const workflow = YAML.parse(await readFile('.github/workflows/release.yml', 'utf8'))
+  assert.equal(workflow.jobs['build-portable'].needs, 'validate')
+  assert.deepEqual(workflow.jobs.container.needs, ['validate', 'build-portable'])
   assert.deepEqual(workflow.jobs.release.needs, ['validate', 'build-portable', 'container'])
   assert.equal(workflow.on.workflow_dispatch.inputs.publish.default, false)
   const steps = workflow.jobs.container.steps
@@ -147,11 +152,22 @@ test('release workflow gates publication behind portable and container smoke tes
   assert.equal(build.with.sbom, true)
   assert.equal(build.with.provenance, 'mode=max')
   assert.equal(build.with.platforms, 'linux/amd64,linux/arm64')
-  assert.equal(build.with.push, "${{ github.event_name == 'workflow_dispatch' && inputs.publish }}")
-  assert.ok(steps.some(item => item.run?.includes('assert-image-unpublished')))
+  assert.equal(build.with.push, "${{ env.PUBLISH_RELEASE == 'true' }}")
+  const login = steps.find(item => item.uses?.startsWith('docker/login-action@'))
+  const guard = steps.find(item => item.run?.includes('assert-image-unpublished'))
+  const attestation = steps.find(item => item.with?.['push-to-registry'])
+  const smoke = steps.find(item => item.run?.includes('smoke-container.mjs'))
+  for (const step of [login, guard, attestation]) assert.equal(step.if, "env.PUBLISH_RELEASE == 'true'")
+  assert.ok(steps.indexOf(smoke) >= 0 && steps.indexOf(smoke) < steps.indexOf(login))
+  assert.ok(steps.indexOf(guard) < steps.indexOf(build))
   assert.ok(workflow.jobs['build-portable'].steps.some(item => item.with?.['sbom-path']))
-  const publish = workflow.jobs.release.steps.find(item => item.name === 'Create or update draft release')
-  assert.equal(publish.env.PUBLISH_RELEASE, "${{ github.event_name == 'workflow_dispatch' && inputs.publish }}")
+  const publish = workflow.jobs.release.steps.find(item => item.run?.includes('gh release create'))
+  assert.equal(publish.env.PUBLISH_RELEASE, undefined) // Inherit the same workflow-level decision as GHCR.
+  assert.match(publish.run, /if \[\[ "\$PUBLISH_RELEASE" == "true" \]\]; then\s+gh release edit "\$RELEASE_TAG" --draft=false/)
+  assert.match(publish.run, /--verify-tag --draft/)
+  assert.match(publish.run, /if \[\[ "\$is_draft" != "true" \]\]; then/)
+  const notes = workflow.jobs.release.steps.find(item => item.name === 'Generate release notes')
+  assert.equal(notes.env.RELEASE_IMAGE_DIGEST, "${{ env.PUBLISH_RELEASE == 'true' && needs.container.outputs.digest || '' }}")
 })
 
 test('registry verification requires both architectures and paired SBOM/provenance manifests', () => {

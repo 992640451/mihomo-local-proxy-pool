@@ -1,10 +1,13 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 已推送的 Git 标签，例如 v1.2.0（此处不会创建标签）
+        description: 已推送的 Git 标签，例如 v1.3.0（此处不会创建标签）
         required: true
         type: string
       publish:
@@ -17,16 +20,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ inputs.tag }}
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  PUBLISH_RELEASE: ${{ (github.event_name == 'push' && !github.event.deleted) || (github.event_name == 'workflow_dispatch' && inputs.publish == true) }}
   TOOLING_REF: ${{ github.sha }}
   RELEASE_NODE_VERSION: 26.8.1
 
 jobs:
   validate:
+    if: github.event_name != 'push' || !github.event.deleted
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     outputs:
@@ -64,7 +69,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
       - name: Validate update signing before any image push
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && steps.metadata.outputs.prerelease != 'true'
+        if: env.PUBLISH_RELEASE == 'true' && steps.metadata.outputs.prerelease != 'true'
         env:
           UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
         run: node tooling/scripts/validate-update-signing.mjs --root source
@@ -176,13 +181,13 @@ jobs:
             node tooling/scripts/smoke-container.mjs --image "ppm-smoke:$arch" --version "$VERSION" --revision "$REVISION"
           done
       - uses: docker/login-action@v4
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        if: env.PUBLISH_RELEASE == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Refuse overwriting existing version and revision tags
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        if: env.PUBLISH_RELEASE == 'true'
         run: node tooling/scripts/assert-image-unpublished.mjs "$IMAGE:$RELEASE_TAG" "$IMAGE:sha-$REVISION"
       - name: Build multi-architecture image with SBOM and provenance
         id: build
@@ -190,7 +195,7 @@ jobs:
         with:
           context: source
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+          push: ${{ env.PUBLISH_RELEASE == 'true' }}
           tags: |
             ${{ env.IMAGE }}:${{ env.RELEASE_TAG }}
             ${{ env.IMAGE }}:sha-${{ env.REVISION }}
@@ -201,7 +206,7 @@ jobs:
           provenance: mode=max
           sbom: true
       - name: Attest registry image
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        if: env.PUBLISH_RELEASE == 'true'
         uses: actions/attest@v4
         with:
           subject-name: ${{ env.IMAGE }}
@@ -236,14 +241,14 @@ jobs:
           path: release-assets
           merge-multiple: true
       - name: Resolve pinned Mihomo image for updates
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && needs.validate.outputs.prerelease != 'true'
+        if: env.PUBLISH_RELEASE == 'true' && needs.validate.outputs.prerelease != 'true'
         shell: bash
         run: |
           core_version=$(node -p "JSON.parse(require('fs').readFileSync('source/release/core-manifest.json')).version")
           core_digest=$(docker buildx imagetools inspect "docker.io/metacubex/mihomo:v${core_version}" --format '{{.Manifest.Digest}}')
           echo "RELEASE_CORE_IMAGE=docker.io/metacubex/mihomo@${core_digest}" >> "$GITHUB_ENV"
       - name: Sign machine-readable update manifest
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && needs.validate.outputs.prerelease != 'true'
+        if: env.PUBLISH_RELEASE == 'true' && needs.validate.outputs.prerelease != 'true'
         env:
           UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
           RELEASE_IMAGE: ${{ needs.validate.outputs.image }}
@@ -254,18 +259,17 @@ jobs:
       - name: Generate release notes
         env:
           RELEASE_IMAGE: ${{ needs.validate.outputs.image }}
-          RELEASE_IMAGE_DIGEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish) && needs.container.outputs.digest || '' }}
+          RELEASE_IMAGE_DIGEST: ${{ env.PUBLISH_RELEASE == 'true' && needs.container.outputs.digest || '' }}
         run: node tooling/scripts/extract-release-notes.mjs --root source --tag "$RELEASE_TAG" --output release-notes.md
       - name: Attest checksums and metadata
         uses: actions/attest@v4
         with:
           subject-path: release-assets/*
-      - name: Create or update draft release
+      - name: Create draft and publish when enabled
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
-          PUBLISH_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
         shell: bash
         run: |
           set -euo pipefail
