@@ -42,7 +42,7 @@ async function fixture(t, { legacyListeners = [] } = {}) {
   registerTokenRoutes(app, { configured: true, tokenStore, auditStore })
   const api = versionedRegistrar(app, { auditStore })
   registerAutomationRoutes(api, { recoveryService, loadLiveCatalog, mutationGate, auditStore })
-  registerSubscriptionRoutes(api, { subscriptionService, subscriptionMode: 'native', loadLiveCatalog, syncCoreAfterSubscriptionChange: async () => {}, mutationGate, auditStore })
+  registerSubscriptionRoutes(api, { subscriptionService, subscriptionMode: 'native', loadLiveCatalog, mutationGate, auditStore })
   registerRuntimeRoute(api, { startedAt: Date.now(), appVersion: 'test', embeddedCore: false, loadLiveCatalog })
   registerReliabilityRoutes(api, { recoveryService, diagnosticService: { run: async () => ({ status: 'ok', checks: [] }) }, mutationGate, auditStore })
   registerPortRoutes(api, { embeddedCore: true, defaultConfigDir: () => '', loadLiveCatalog, mutationGate, auditStore,

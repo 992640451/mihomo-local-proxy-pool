@@ -23,7 +23,7 @@ export function registerReliabilityRoutes(app, { recoveryService, diagnosticServ
     }
   })
 
-  app.post('/api/recovery/export', mutationGate.mutation(async (req, res) => {
+  app.post('/api/recovery/export', mutationGate.restore(async (req, res) => {
     const started = Date.now()
     try {
       const result = await recoveryService.create(req.body?.password)

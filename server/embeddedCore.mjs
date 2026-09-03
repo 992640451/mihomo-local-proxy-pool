@@ -220,6 +220,43 @@ export function syncEmbeddedCore(source, rawOptions = {}) {
   })
 }
 
+// Subscription activation and port writes share one queue: a rejected candidate
+// must not escape into another port write, nor roll back a concurrent change.
+export function applyEmbeddedSubscriptionChange(source, change, rawOptions = {}) {
+  return serializeMutation(async () => {
+    const options = defaultOptions(rawOptions)
+    const previous = await Promise.all([options.statePath, options.configPath].map(async filename => {
+      try { return await readFile(filename, 'utf8') } catch (error) { if (error.code === 'ENOENT') return null; throw error }
+    }))
+    let touched = false
+    try {
+      return await change(async () => {
+        if (!options.controllerUrl) throw new Error('Mihomo Controller 未配置，不能确认订阅配置有效')
+        touched = true
+        const state = await readState(options) || emptyState()
+        await persist(source, state, options, true)
+      })
+    } catch (error) {
+      if (touched) {
+        const failures = []
+        for (const [index, filename] of [options.statePath, options.configPath].entries()) {
+          try {
+            if (previous[index] === null) await unlink(filename).catch(cause => { if (cause.code !== 'ENOENT') throw cause })
+            else await atomicWrite(filename, previous[index])
+          } catch { failures.push(index === 0 ? '端口状态文件' : '核心配置文件') }
+        }
+        // Restore the running core too: a timeout/commit failure may occur after
+        // the core accepted the candidate. Do not report such a rollback as OK.
+        if (previous[1] !== null && !failures.length) {
+          try { await reloadCore(options) } catch { failures.push('核心运行状态') }
+        }
+        if (failures.length) throw new Error(`订阅变更失败；${failures.join('、')}回滚失败，请检查核心和磁盘`, { cause: error })
+      }
+      throw error
+    }
+  })
+}
+
 export async function exportEmbeddedCoreState(rawOptions = {}) {
   const options = defaultOptions(rawOptions)
   return structuredClone(await readState(options) || emptyState())

@@ -4,6 +4,7 @@ import path from 'node:path'
 import YAML from 'yaml'
 import { fetchSubscription } from './fetcher.mjs'
 import { parseSubscription } from './parser.mjs'
+import { redactText } from '../security/redaction.mjs'
 
 function hash(content) { return createHash('sha256').update(content).digest('hex') }
 function legacyNodeId(providerId, name) { return createHash('sha1').update(`${providerId}:${name}`).digest('hex').slice(0, 16) }
@@ -16,6 +17,9 @@ export class SubscriptionService {
     this.fetchOptions = fetchOptions
     this.refreshing = new Set()
     this.timer = null
+    this.paused = false
+    this.changeQueue = Promise.resolve()
+    this.applyChange = change => change()
   }
 
   async initialize() {
@@ -25,6 +29,25 @@ export class SubscriptionService {
   list() { return this.store.list() }
   getDefinitions(options) { return this.store.definitions(options) }
   nodeIds(id) { return this.store.nodeIds(id) }
+
+  #change(operation, onFailure) {
+    const run = async () => {
+      try {
+        return await this.applyChange(synchronize => this.store.transaction(async () => {
+          const result = await operation()
+          await synchronize?.()
+          return result
+        }))
+      } catch (error) {
+        // Failure bookkeeping is outside the rolled-back transaction.
+        onFailure?.(error)
+        throw error
+      }
+    }
+    const result = this.changeQueue.then(run, run)
+    this.changeQueue = result.catch(() => {})
+    return result
+  }
 
   async preview({ url, content }) {
     const payload = content || (await fetchSubscription(url, this.fetchOptions)).content
@@ -37,56 +60,54 @@ export class SubscriptionService {
     if (!cleanName) throw new Error('订阅名称不能为空')
     if (!url && !content) throw new Error('需要提供订阅 URL 或 YAML 内容')
     const normalizedUrl = url ? String(url).trim() : null
-    const duplicate = normalizedUrl ? this.store.list({ secrets: true }).find(item => item.url === normalizedUrl) : null
-    if (duplicate?.nodeCount) throw new Error(`该订阅地址已由“${duplicate.name}”导入`)
-    if (duplicate) {
-      this.store.update(duplicate.id, { name: cleanName, url: normalizedUrl, enabled, priority: normalizePriority(priority), refreshIntervalSeconds: normalizeInterval(refreshIntervalSeconds) })
-      await this.refresh(duplicate.id)
-      return this.store.get(duplicate.id)
-    }
-    const sourceType = url ? 'url' : 'inline'
-    const id = this.store.insertSubscription({ name: cleanName, sourceType, url: normalizedUrl, enabled, priority: normalizePriority(priority), refreshIntervalSeconds: normalizeInterval(refreshIntervalSeconds) })
-    try {
+    const record = { name: cleanName, sourceType: url ? 'url' : 'inline', url: normalizedUrl, enabled, priority: normalizePriority(priority), refreshIntervalSeconds: normalizeInterval(refreshIntervalSeconds) }
+    let id
+    return this.#change(async () => {
+      const duplicate = normalizedUrl ? this.store.list({ secrets: true }).find(item => item.url === normalizedUrl) : null
+      if (duplicate?.nodeCount) throw new Error(`该订阅地址已由“${duplicate.name}”导入`)
+      id = duplicate?.id || this.store.insertSubscription(record)
+      if (duplicate) this.store.update(id, record)
       if (content) this.#activate(id, content)
-      else await this.refresh(id)
+      else await this.#refresh(id)
       return this.store.get(id)
-    } catch (error) {
+    }, error => {
+      if (!id) return
+      // Keep a retryable failed import, but never its rejected snapshot/nodes.
+      if (!this.store.get(id)) this.store.insertSubscription({ ...record, id })
       this.store.recordFailure(id, error.message)
-      throw error
-    }
+    })
   }
 
   async update(id, patch) {
-    if (!this.store.get(id)) throw new Error('订阅不存在')
+    patch = { ...patch }
     if (patch.refreshIntervalSeconds !== undefined) patch.refreshIntervalSeconds = normalizeInterval(patch.refreshIntervalSeconds)
     if (patch.priority !== undefined) patch.priority = normalizePriority(patch.priority)
     if (patch.name !== undefined && !String(patch.name).trim()) throw new Error('订阅名称不能为空')
-    this.store.update(id, patch)
-    try {
+    return this.#change(async () => {
+      if (!this.store.get(id)) throw new Error('订阅不存在')
+      this.store.update(id, patch)
       if (patch.content) this.#activate(id, String(patch.content))
-      else if (patch.url) await this.refresh(id)
+      else if (patch.url) await this.#refresh(id)
       return this.store.get(id)
-    } catch (error) {
-      this.store.recordFailure(id, error.message)
-      throw error
-    }
+    }, error => this.store.recordFailure(id, error.message))
   }
 
   async refresh(id) {
     if (this.refreshing.has(id)) throw new Error('该订阅正在刷新')
+    this.refreshing.add(id)
+    try {
+      return await this.#change(() => this.#refresh(id), error => this.store.recordFailure(id, error.message))
+    } finally { this.refreshing.delete(id) }
+  }
+
+  async #refresh(id) {
     const subscription = this.store.get(id, { secrets: true })
     if (!subscription) throw new Error('订阅不存在')
     if (!subscription.url) throw new Error('粘贴导入的订阅没有远程地址')
-    this.refreshing.add(id)
-    try {
-      const result = await fetchSubscription(subscription.url, { ...this.fetchOptions, etag: subscription.etag, lastModified: subscription.lastModified })
-      if (result.notModified) this.store.recordNotModified(id, result)
-      else this.#activate(id, result.content, result)
-      return this.store.get(id)
-    } catch (error) {
-      this.store.recordFailure(id, error.message)
-      throw error
-    } finally { this.refreshing.delete(id) }
+    const result = await fetchSubscription(subscription.url, { ...this.fetchOptions, etag: subscription.etag, lastModified: subscription.lastModified })
+    if (result.notModified) this.store.recordNotModified(id, result)
+    else this.#activate(id, result.content, result)
+    return this.store.get(id)
   }
 
   async refreshAll() {
@@ -94,12 +115,15 @@ export class SubscriptionService {
     const results = await Promise.allSettled(candidates.map(item => this.refresh(item.id)))
     return results.map((result, index) => result.status === 'fulfilled'
       ? { id: candidates[index].id, ok: true, subscription: result.value }
-      : { id: candidates[index].id, ok: false, error: result.reason.message })
+      : { id: candidates[index].id, ok: false, error: redactText(result.reason.message) })
   }
 
-  remove(id) {
-    if (!this.store.get(id)) throw new Error('订阅不存在')
-    this.store.delete(id)
+  async remove(id, validate = async () => {}) {
+    return this.#change(async () => {
+      if (!this.store.get(id)) throw new Error('订阅不存在')
+      await validate()
+      this.store.delete(id)
+    }, error => this.store.recordFailure(id, error.message))
   }
 
   #activate(id, content, metadata = {}) {
@@ -135,6 +159,7 @@ export class SubscriptionService {
 
   startScheduler(intervalMs = 30000) {
     if (this.timer) return
+    this.paused = false
     const tick = () => {
       const timestamp = Date.now()
       for (const item of this.store.list()) {
@@ -158,11 +183,12 @@ export class SubscriptionService {
     this.timer.unref?.()
   }
 
-  stopScheduler() { if (this.timer) clearInterval(this.timer); this.timer = null }
+  stopScheduler({ paused = false } = {}) { if (this.timer) clearInterval(this.timer); this.timer = null; this.paused = paused }
 
   schedulerStatus() {
     return {
       running: Boolean(this.timer),
+      paused: this.paused,
       refreshing: this.refreshing.size,
       refreshingIds: [...this.refreshing],
       scheduledSubscriptions: this.store.list().filter(item => item.enabled && item.sourceType === 'url').length,

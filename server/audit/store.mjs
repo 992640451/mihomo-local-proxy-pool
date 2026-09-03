@@ -35,7 +35,7 @@ function positiveInteger(value, fallback, maximum = Number.MAX_SAFE_INTEGER) {
 }
 
 function eventFromRow(row) {
-  return {
+  return redactSensitive({
     id: Number(row.id),
     eventId: row.event_id,
     createdAt: Number(row.created_at),
@@ -48,7 +48,7 @@ function eventFromRow(row) {
     requestId: row.request_id,
     durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
     metadata: row.metadata_json ? JSON.parse(row.metadata_json) : null,
-  }
+  })
 }
 
 export class AuditStore {

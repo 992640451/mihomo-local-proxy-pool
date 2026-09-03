@@ -91,7 +91,7 @@ test('guards real routes including trailing slashes and case-insensitive restore
   const fixture = await mutationFixture(t), write = fixture.begin()
   const activeWrite = fixture.request('/api/slow-write')
   await write.started.promise
-  for (const path of ['/api/recovery/restore', '/api/recovery/restore/', '/API/RECOVERY/RESTORE/?check=1']) {
+  for (const path of ['/api/recovery/restore', '/api/recovery/restore/', '/API/RECOVERY/RESTORE/?check=1', '/api/recovery/export', '/API/RECOVERY/EXPORT/']) {
     const blocked = await fixture.request(path)
     assert.equal(blocked.status, 409)
     assert.equal((await blocked.json()).error.code, 'CONFIGURATION_BUSY')
@@ -105,13 +105,16 @@ test('guards real routes including trailing slashes and case-insensitive restore
     ['DELETE', '/api/subscriptions/id'], ['POST', '/api/subscriptions/id/refresh'],
     ['POST', '/api/subscriptions/refresh-all'], ['POST', '/api/subscriptions/preview'],
     ['PUT', '/api/ports/17900'], ['DELETE', '/api/ports/17900'], ['POST', '/api/ports/17900/verify'],
-    ['DELETE', '/api/audit'], ['POST', '/api/recovery/export'],
+    ['DELETE', '/api/audit'],
   ]) {
     const blocked = await fixture.request(path, { method })
     assert.equal(blocked.status, 409, `${method} ${path}`)
     assert.equal((await blocked.json()).error.code, 'RECOVERY_IN_PROGRESS')
   }
   assert.equal((await fixture.request('/api/recovery/restore/')).status, 409)
+  const blockedExport = await fixture.request('/api/recovery/export')
+  assert.equal(blockedExport.status, 409)
+  assert.equal((await blockedExport.json()).error.code, 'CONFIGURATION_BUSY')
   assert.equal((await fixture.request('/API/RECOVERY/INSPECT/')).status, 200)
   assert.equal((await fixture.request('/api/unknown')).status, 404)
   restore.release.resolve()

@@ -4,11 +4,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { redactSensitive, redactText } from '../security/redaction.mjs'
 
-async function capture(name, operation, { warning = false } = {}) {
+async function capture(name, operation, { assess = () => ({ status: 'ok' }) } = {}) {
   const started = Date.now()
   try {
     const details = await operation()
-    return { name, status: warning ? 'warning' : 'ok', durationMs: Date.now() - started, details: redactSensitive(details) }
+    return { name, ...assess(details), durationMs: Date.now() - started, details: redactSensitive(details) }
   } catch (error) {
     return { name, status: 'error', durationMs: Date.now() - started, message: redactText(error.message) }
   }
@@ -51,10 +51,15 @@ export class DiagnosticService {
     if (this.observationService) checks.push(await capture('observationScheduler', () => {
       const { settings, running, schedulerRunning, nextRunAt } = this.observationService.status()
       return { enabled: settings.enabled, running, schedulerRunning, nextRunAt }
-    }))
+    }, { assess: details => details.enabled && !details.schedulerRunning
+      ? { status: 'error', message: '后台检测已启用，但调度器未运行' } : { status: 'ok' } }))
     checks.push(await capture('subscriptionScheduler', () => this.subscriptionService
       ? { enabled: true, ...this.subscriptionService.schedulerStatus() }
-      : { enabled: false }))
+      : { enabled: false }, { assess: details => {
+        if (details.paused) return { status: 'warning', message: '配置备份或恢复期间，订阅调度暂时暂停' }
+        if (details.enabled && details.scheduledSubscriptions > 0 && !details.running) return { status: 'error', message: '存在待刷新订阅，但订阅调度器未运行' }
+        return { status: 'ok' }
+      } }))
     checks.push(await capture('mihomoCore', async () => {
       if (!this.embeddedCore) return { enabled: false }
       const status = await this.embeddedCoreStatus()

@@ -32,3 +32,27 @@ test('reports component health and exports only masked subscription diagnostics'
   assert.equal(exported.subscriptions[0].name, 'Primary')
   assert.equal(exported.environment.nodeVersion, process.version)
 })
+
+test('enabled but stopped schedulers fail diagnostics, while disabled or paused ones do not', async () => {
+  let subscription = { running: false, scheduledSubscriptions: 1 }, observation = { settings: { enabled: true }, schedulerRunning: false }
+  const service = new DiagnosticService({
+    subscriptionService: { schedulerStatus: () => subscription },
+    observationService: { status: () => observation },
+    sessionStore: { health: () => ({ ok: true }) }, auditStore: { health: () => ({ ok: true }) },
+    loadLiveCatalog: async () => ({ providers: [], nodes: [], listeners: [] }),
+  })
+  let result = await service.run()
+  assert.equal(result.status, 'error')
+  assert.equal(result.errors, 2)
+  assert.ok(result.checks.filter(item => item.name.endsWith('Scheduler')).every(item => item.status === 'error'))
+  observation = { settings: { enabled: false }, schedulerRunning: false }
+  subscription = { running: false, scheduledSubscriptions: 0 }
+  assert.equal((await service.run()).status, 'ok')
+  subscription = { running: false, scheduledSubscriptions: 1, paused: true }
+  result = await service.run()
+  assert.equal(result.status, 'warning')
+  assert.equal(result.warnings, 1)
+  subscription = { running: true, scheduledSubscriptions: 1, paused: false }
+  observation = { settings: { enabled: true }, schedulerRunning: true }
+  assert.equal((await service.run()).status, 'ok')
+})

@@ -5,7 +5,6 @@ export function registerSubscriptionRoutes(app, {
   subscriptionService,
   subscriptionMode,
   loadLiveCatalog,
-  syncCoreAfterSubscriptionChange,
   auditStore,
   mutationGate,
 } = {}) {
@@ -30,7 +29,6 @@ export function registerSubscriptionRoutes(app, {
     if (!subscriptionService) return unavailable(req, res)
     try {
       const result = await subscriptionService.create(req.body || {})
-      await syncCoreAfterSubscriptionChange()
       recordAudit(auditStore, req, { action: 'subscription.create', targetType: 'subscription', targetId: result.id, message: `已导入订阅“${result.name}”`, metadata: { sourceType: result.sourceType, nodeCount: result.nodeCount } })
       res.status(201).set('Cache-Control', 'no-store').json(result)
     } catch (error) {
@@ -42,7 +40,6 @@ export function registerSubscriptionRoutes(app, {
     if (!subscriptionService) return unavailable(req, res)
     try {
       const result = await subscriptionService.update(req.params.id, req.body || {})
-      await syncCoreAfterSubscriptionChange()
       recordAudit(auditStore, req, { action: 'subscription.update', targetType: 'subscription', targetId: result.id, message: `已更新订阅“${result.name}”`, metadata: { enabled: result.enabled, priority: result.priority, refreshIntervalSeconds: result.refreshIntervalSeconds } })
       res.set('Cache-Control', 'no-store').json(result)
     } catch (error) {
@@ -54,7 +51,6 @@ export function registerSubscriptionRoutes(app, {
     if (!subscriptionService) return unavailable(req, res)
     try {
       const result = await subscriptionService.refresh(req.params.id)
-      await syncCoreAfterSubscriptionChange()
       recordAudit(auditStore, req, { action: 'subscription.refresh', targetType: 'subscription', targetId: result.id, message: `已刷新订阅“${result.name}”`, metadata: { nodeCount: result.nodeCount } })
       res.set('Cache-Control', 'no-store').json(result)
     } catch (error) {
@@ -66,7 +62,6 @@ export function registerSubscriptionRoutes(app, {
     if (!subscriptionService) return unavailable(req, res)
     try {
       const results = await subscriptionService.refreshAll()
-      await syncCoreAfterSubscriptionChange()
       recordAudit(auditStore, req, { action: 'subscription.refreshAll', outcome: results.some(item => !item.ok) ? 'failure' : 'success', targetType: 'subscription', message: `批量刷新完成：${results.filter(item => item.ok).length}/${results.length} 成功`, metadata: { total: results.length, succeeded: results.filter(item => item.ok).length } })
       res.set('Cache-Control', 'no-store').json({ results })
     } catch (error) {
@@ -81,13 +76,18 @@ export function registerSubscriptionRoutes(app, {
       const catalog = await loadLiveCatalog()
       const referenced = (catalog.listeners || []).filter(listener => (listener.nodeIds || []).some(id => nodeIds.has(id)))
       if (referenced.length) return apiError(req, res, { status: 409, code: 'SUBSCRIPTION_IN_USE', message: '订阅仍被端口引用', meta: { ports: referenced.map(item => item.port) } })
-      subscriptionService.remove(req.params.id)
-      await syncCoreAfterSubscriptionChange()
+      await subscriptionService.remove(req.params.id, async () => {
+        const current = await loadLiveCatalog()
+        const currentNodeIds = new Set(subscriptionService.nodeIds(req.params.id))
+        if ((current.listeners || []).some(listener => (listener.nodeIds || []).some(id => currentNodeIds.has(id)))) {
+          throw Object.assign(new Error('订阅仍被端口引用'), { status: 409, code: 'SUBSCRIPTION_IN_USE' })
+        }
+      })
       recordAudit(auditStore, req, { action: 'subscription.delete', targetType: 'subscription', targetId: req.params.id, message: '已删除订阅' })
       res.status(204).end()
     } catch (error) {
       recordAudit(auditStore, req, { action: 'subscription.delete', outcome: 'failure', targetType: 'subscription', targetId: req.params.id, message: `订阅删除失败：${error.message}` })
-      apiError(req, res, { status: 400, code: 'SUBSCRIPTION_DELETE_FAILED', message: '订阅删除失败', error })
+      apiError(req, res, { status: error.status || 400, code: error.code || 'SUBSCRIPTION_DELETE_FAILED', message: '订阅删除失败', error })
     }
   }))
 }

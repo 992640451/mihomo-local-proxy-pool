@@ -1,6 +1,7 @@
 import path from 'node:path'
 
-const SECRET_KEY = /(?:authorization|cookie|password|passwd|secret|token|api[-_]?key|credential|content|yaml|raw)/i
+const SECRET_KEY = /(?:authorization|cookie|password|passwd|secret|token|api[-_]?key|credential|content|yaml|raw|uuid|private[-_]?key|pre[-_]?shared[-_]?key|client[-_]?key|auth[-_]?str|psk)/i
+const TEXT_SECRET_KEY = '(?:password|passwd|secret|token|api[-_]?key|uuid|private[-_]?key|pre[-_]?shared[-_]?key|client[-_]?key|auth[-_]?str|psk)'
 const URL_KEY = /(?:^|[-_])url$/i
 const URL_PATTERN = /https?:\/\/[^\s"'<>，。；）)]+/gi
 
@@ -29,10 +30,13 @@ export function redactUrl(value) {
 
 export function redactText(value) {
   let text = String(value ?? '')
+  // Also protect historical errors already stored by older application versions.
+  text = text.replace(/YAML 解析失败[:：][\s\S]*/g, 'YAML 解析失败：<原文已隐藏>')
+  text = text.replace(/-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z]+ )?PRIVATE KEY-----/g, '<redacted-private-key>')
   text = text.replace(URL_PATTERN, match => redactUrl(match))
   text = text.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 ***')
   text = text.replace(/\bppm_[A-Za-z0-9_-]{43}\b/g, '<redacted-api-credential>')
-  text = text.replace(/\b(password|passwd|secret|token|api[-_]?key)\s*[:=]\s*([^\s,;]+)/gi, '$1=***')
+  text = text.replace(new RegExp(`(["']?\\b${TEXT_SECRET_KEY}["']?\\s*[:=]\\s*)(?:"(?:\\\\.|[^"\\\\])*"|'(?:''|[^'])*'|[^\\s,;\\]}]+)`, 'gi'), '$1***')
   const homePaths = [process.env.USERPROFILE, process.env.HOME]
     .filter(Boolean)
     .map(value => path.resolve(value))

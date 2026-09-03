@@ -98,7 +98,7 @@ export class SubscriptionStore {
   }
 
   recordFailure(id, message) {
-    this.db.prepare('UPDATE subscriptions SET last_attempt_at=?,last_error=?,updated_at=? WHERE id=?').run(now(), String(message), now(), id)
+    this.db.prepare('UPDATE subscriptions SET last_attempt_at=?,last_error=?,updated_at=? WHERE id=?').run(now(), redactText(message), now(), id)
   }
 
   recordNotModified(id, { etag, lastModified }) {
@@ -111,7 +111,7 @@ export class SubscriptionStore {
     const snapshotId = randomUUID(), timestamp = now()
     const encryptedContent = this.box.encrypt(content)
     const encryptedNodes = nodes.map(node => ({ ...node, rawEncrypted: this.box.encrypt(JSON.stringify(node.raw)) }))
-    this.db.exec('BEGIN IMMEDIATE')
+    this.db.exec('SAVEPOINT subscription_activate')
     try {
       this.db.prepare(`INSERT INTO subscription_snapshots
         (id,subscription_id,content_encrypted,content_hash,format,node_count,status,created_at)
@@ -130,9 +130,23 @@ export class SubscriptionStore {
       }
       this.db.prepare(`UPDATE subscriptions SET active_snapshot_id=?,etag=?,last_modified=?,last_attempt_at=?,last_success_at=?,last_error=NULL,updated_at=? WHERE id=?`)
         .run(snapshotId, etag, lastModified, timestamp, timestamp, timestamp, subscriptionId)
-      this.db.exec('COMMIT')
-    } catch (error) { this.db.exec('ROLLBACK'); throw error }
+      this.db.exec('RELEASE subscription_activate')
+    } catch (error) { this.db.exec('ROLLBACK TO subscription_activate; RELEASE subscription_activate'); throw error }
     return snapshotId
+  }
+
+  // Called only under SubscriptionService's queue and the shared core write lock.
+  // The core sees candidate definitions, but SQLite does not commit until reload succeeds.
+  async transaction(operation) {
+    this.db.exec('SAVEPOINT subscription_change')
+    try {
+      const result = await operation()
+      this.db.exec('RELEASE subscription_change')
+      return result
+    } catch (error) {
+      this.db.exec('ROLLBACK TO subscription_change; RELEASE subscription_change')
+      throw error
+    }
   }
 
   definitions({ includeOrphaned = false, includeDisabled = false } = {}) {

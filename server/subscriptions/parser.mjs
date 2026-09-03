@@ -18,7 +18,13 @@ export function parseSubscription(content, { subscriptionId, maxNodes = 5000 } =
   if (!subscriptionId) throw new Error('缺少订阅 ID')
   let document
   try { document = YAML.parse(String(content || '')) || {} }
-  catch (error) { throw new Error(`YAML 解析失败：${error.message}`) }
+  catch (error) {
+    // YAML errors may embed entire source lines, including proxy credentials.
+    const code = /^[A-Z_]+$/.test(error.code || '') ? error.code : 'INVALID_YAML'
+    const position = error.linePos?.[0]
+    const location = Number.isInteger(position?.line) && Number.isInteger(position?.col) ? `，第 ${position.line} 行 ${position.col} 列` : ''
+    throw new Error(`YAML 解析失败（${code}${location}）`)
+  }
   if (!Array.isArray(document.proxies)) throw new Error('订阅内容缺少 proxies 数组')
   if (!document.proxies.length) throw new Error('订阅没有可用节点')
   if (document.proxies.length > maxNodes) throw new Error(`订阅节点超过上限（${maxNodes}）`)

@@ -8,7 +8,7 @@ import { buildNativeCatalog, defaultConfigDir, loadSubscriptionCatalog } from '.
 import { applyMihomoPort, deleteMihomoPort } from './mihomoConfig.mjs'
 import { probeProxyEgress, verifyProxyPool } from './egressProbe.mjs'
 import { createCredentialVersion, SessionStore } from './sessionStore.mjs'
-import { applyEmbeddedPort, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, exportEmbeddedCoreState, isEmbeddedCoreEnabled, restoreEmbeddedCoreState, syncEmbeddedCore, validateEmbeddedCoreState } from './embeddedCore.mjs'
+import { applyEmbeddedPort, applyEmbeddedSubscriptionChange, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, exportEmbeddedCoreState, isEmbeddedCoreEnabled, restoreEmbeddedCoreState, syncEmbeddedCore, validateEmbeddedCoreState } from './embeddedCore.mjs'
 import { SubscriptionStore } from './subscriptions/store.mjs'
 import { SubscriptionService } from './subscriptions/service.mjs'
 import { requestContext } from './http/requestContext.mjs'
@@ -110,11 +110,11 @@ async function syncCoreAfterSubscriptionChange() {
 }
 
 if (subscriptionService) {
+  if (embeddedCore) subscriptionService.applyChange = change => applyEmbeddedSubscriptionChange(defaultConfigDir(), change, coreOptions)
   subscriptionService.runScheduledRefresh = operation => mutationGate.runMutation(operation)
   subscriptionService.onScheduledRefresh = async event => {
     try {
       if (!event.ok) throw event.error
-      await syncCoreAfterSubscriptionChange()
       auditStore.record({ actor: 'scheduler', action: 'subscription.refresh', targetType: 'subscription', targetId: event.subscription.id, message: `已自动刷新订阅“${event.subscription.name}”`, metadata: { nodeCount: event.subscription.nodeCount } })
     } catch (error) {
       auditStore.record({ actor: 'scheduler', action: 'subscription.refresh', outcome: 'failure', targetType: 'subscription', targetId: event.subscription?.id, message: `自动刷新订阅失败：${error.message}` })
@@ -135,7 +135,7 @@ const recoveryService = new RecoveryService({
   suspend: subscriptionService ? () => {
     const status = subscriptionService.schedulerStatus()
     if (status.refreshing) throw new Error('订阅正在刷新，请等待刷新完成后重试恢复')
-    if (status.running) subscriptionService.stopScheduler()
+    if (status.running) subscriptionService.stopScheduler({ paused: true })
     return status.running
   } : null,
   resume: subscriptionService ? wasRunning => { if (wasRunning) subscriptionService.startScheduler() } : null,
@@ -186,7 +186,7 @@ registerTokenRoutes(app, { tokenStore, configured: authConfigured, auditStore })
 const api = versionedRegistrar(app, { auditStore })
 registerAutomationRoutes(api, { recoveryService, loadLiveCatalog, auditStore, mutationGate })
 registerObservationRoutes(api, { service: observationService, store: observationStore, auditStore, mutationGate })
-registerSubscriptionRoutes(api, { subscriptionService, subscriptionMode, loadLiveCatalog, syncCoreAfterSubscriptionChange, auditStore, mutationGate })
+registerSubscriptionRoutes(api, { subscriptionService, subscriptionMode, loadLiveCatalog, auditStore, mutationGate })
 registerRuntimeRoute(api, { startedAt, appVersion, buildInfo, embeddedCore, embeddedCoreStatus, loadLiveCatalog })
 registerAuditRoutes(api, { auditStore, mutationGate })
 registerReliabilityRoutes(api, { recoveryService, diagnosticService, auditStore, mutationGate })
@@ -258,6 +258,7 @@ export function stopApplication() {
       if (error) return reject(error)
       try {
         await observationStopped
+        await subscriptionService?.changeQueue
         observationStore.close()
         subscriptionStore?.close()
         sessionStore.close()
