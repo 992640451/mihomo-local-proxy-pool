@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero.png" alt="Three proxy nodes merging into one local port connected to a desktop app" width="100%" />
+  <img src="assets/readme-hero.png" alt="Proxy Port Manager hand-drawn science-fiction banner: colorful data trails from satellite nodes converge at a central space station, then connect to a local terminal through one stable endpoint" width="100%" />
 </p>
 
 <h1 align="center">Proxy Port Manager</h1>
@@ -24,7 +24,9 @@
   <a href="#3-minute-start"><strong>3-minute start</strong></a> ·
   <a href="#first-use"><strong>First use</strong></a> ·
   <a href="#connect-your-app"><strong>Connect an app</strong></a> ·
-  <a href="#faq"><strong>FAQ</strong></a>
+  <a href="#faq"><strong>FAQ</strong></a> ·
+  <a href="https://github.com/992640451/mihomo-local-proxy-pool/releases"><strong>Downloads</strong></a> ·
+  <a href="CHANGELOG_EN.md"><strong>Changelog</strong></a>
 </p>
 
 ---
@@ -44,18 +46,6 @@ Your application only needs one local address. Proxy Port Manager and Mihomo han
 
 It is designed for local development, crawlers, automation tools, and applications that need a stable HTTP or SOCKS5 proxy entry.
 
-## What's new in 1.2.0
-
-This branch is version **1.2.0**. Available public bundles and images are listed under [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases). Updating source code does not automatically update published downloads.
-
-- **Node and port observability**: measured node health, batch latency tests, port verification history, and 24-hour failure trends. Background probes are off by default, with configurable traffic and history limits.
-- **Script automation**: `/api/v1`, OpenAPI, revocable scoped tokens, and `ppm doctor / backup / restore / ports list / subscriptions refresh`.
-- **Restore planning**: review subscription, node, and port additions, changes, and deletions before explicitly applying a signed plan. Plans expire after 10 minutes and must be regenerated if configuration changes.
-- **Reliability fixes**: subscription changes commit only after Mihomo confirms reload, with rollback on failure; improved YAML-error and historical-audit redaction and scheduler diagnostics.
-- **Double-click on Windows**: fully extract the bundle, then use `启动管理器.cmd` to start in the background and open the dashboard, with separate open/stop launchers and bilingual getting-started notes.
-
-See [Observability](OBSERVABILITY_EN.md), [Automation API and CLI](AUTOMATION_EN.md), and the [full changelog](CHANGELOG_EN.md).
-
 > [!IMPORTANT]
 > This project manages subscriptions you are authorized to use. It does not provide proxy nodes. It binds to `127.0.0.1` by default and is intended for a single-machine local proxy pool, not a public proxy service.
 
@@ -65,6 +55,8 @@ Proxy Port Manager supports two local deployment modes:
 
 - **Portable server bundles (recommended for beginners)** for Windows, Linux, and macOS. They include Node.js and Mihomo, open the existing web UI in a browser, and do not require Docker or Git.
 - **Docker Compose (advanced deployment)** for development machines, NAS devices, and long-running hosts.
+
+See [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases) for bundles and images, and the [changelog](CHANGELOG_EN.md) for version history. For a published release, follow the documentation included with that version; the source branch may contain features that have not been released yet.
 
 ### Windows: download, extract, double-click (recommended)
 
@@ -87,13 +79,30 @@ These are the only operation launchers at the Windows bundle root. The underlyin
 
 Closing the browser or startup window **does not stop the proxy**. Start again after rebooting the PC; there is no auto-start. The password is printed only when first generated, never in background logs.
 
-These launchers ship with Windows bundles starting at **1.2.0**; check the actual Release assets for availability. For older bundles, follow their included portable guide. Double-click [START_HERE.txt](START_HERE.txt) ([简体中文](开始使用.txt)) in the extracted folder for a short guide. Command-line use is optional; see [advanced portable commands](PORTABLE.md#windows-command-line-advanced).
+If your extracted bundle does not contain these launchers, follow the portable guide included with that bundle. Bundles with the launchers also include [START_HERE.txt](START_HERE.txt) ([简体中文](开始使用.txt)); double-click it in the extracted folder for a short guide. Command-line use is optional; see [advanced portable commands](PORTABLE.md#windows-command-line-advanced).
 
 Portable state is stored in `data` at the extraction root, not inside `bin`. Stop the service and back up that directory before upgrading; do not overwrite it with the new bundle. See [Portable deployment](PORTABLE.md).
 
+<details>
+<summary><strong>Windows command line: PowerShell / CMD</strong></summary>
+
+Open **PowerShell or Command Prompt (CMD)** in the extracted directory. These commands work in both shells; run individual commands as needed:
+
+```bat
+.\bin\ppm.cmd start --background
+.\bin\ppm.cmd status
+.\bin\ppm.cmd stop
+```
+
+To start without opening a browser, run `.\bin\ppm.cmd start --background --no-open`. Windows uses `bin\ppm.cmd`; `./ppm` below is the Linux / macOS entry point.
+
+</details>
+
 ### Linux / macOS portable deployment
 
-Download the `.tar.gz` for your system and architecture (x64 or arm64), extract it, and enter the directory:
+Download the `.tar.gz` for your system and architecture (x64 or arm64), extract it, and enter the directory in a terminal.
+
+**Shell: Bash or Zsh on Linux / macOS.** The system's `/bin/sh` interprets `./ppm`; these commands cannot be pasted directly into Windows PowerShell or CMD. Run individual commands as needed:
 
 ```bash
 ./ppm start
@@ -117,7 +126,9 @@ On Windows, make sure Docker Desktop is using Linux containers.
 
 #### 2. Install and start
 
-```bash
+**Shell: PowerShell / CMD / Bash / Zsh (the commands below work in all four).**
+
+```text
 git clone https://github.com/992640451/mihomo-local-proxy-pool.git
 cd mihomo-local-proxy-pool
 npm run init
@@ -130,11 +141,18 @@ docker compose up -d --build
 
 Visit [http://127.0.0.1:4173](http://127.0.0.1:4173) and sign in with the credentials printed during initialization.
 
-Check that the service is ready:
+Check that the service is ready. **Linux / macOS (Bash / Zsh):**
 
 ```bash
 docker compose ps
 curl http://127.0.0.1:4173/healthz
+```
+
+**Windows (PowerShell / CMD):**
+
+```bat
+docker compose ps
+curl.exe http://127.0.0.1:4173/healthz
 ```
 
 The management service is ready when the response contains `status: ok`.
@@ -158,6 +176,8 @@ Assume you created a Mixed listener on port `17900`:
 
 ### Command line
 
+**Linux / macOS (Bash / Zsh):**
+
 ```bash
 # HTTP / HTTPS
 curl --proxy http://127.0.0.1:17900 https://api.ipify.org
@@ -166,9 +186,18 @@ curl --proxy http://127.0.0.1:17900 https://api.ipify.org
 curl --proxy socks5h://127.0.0.1:17900 https://api.ipify.org
 ```
 
-In Windows PowerShell, use `curl.exe` instead of `curl` when necessary.
+**Windows (PowerShell / CMD):** The first command tests HTTP / HTTPS; the second tests SOCKS5 with remote DNS resolution.
+
+```bat
+curl.exe --proxy http://127.0.0.1:17900 https://api.ipify.org
+curl.exe --proxy socks5h://127.0.0.1:17900 https://api.ipify.org
+```
+
+Use `curl.exe` explicitly on Windows so Windows PowerShell does not resolve `curl` to its `Invoke-WebRequest` alias.
 
 ### Environment variables
+
+These are variable names and values to enter in your application's environment variable settings, not commands to paste directly into a terminal:
 
 ```text
 HTTP_PROXY=http://127.0.0.1:17900
@@ -210,7 +239,7 @@ Automatic strategies only use nodes that pass health checks. The service rejects
 - Persistent sessions, subscriptions, and port-pool state.
 - Passphrase-encrypted configuration backups with automatic rollback on restore failure.
 - Persistent server-side audit events and redacted diagnostic exports.
-- Scoped API tokens, a versioned API, OpenAPI, and automation commands; restore planning and explicit application.
+- Scoped API tokens, a versioned API, OpenAPI, and automation commands; restore planning and explicit application. See [Automation API and CLI](AUTOMATION_EN.md).
 - Optional migration from Clash Verge remote subscriptions.
 
 ## How it works
@@ -231,6 +260,8 @@ Compose publishes `17891-17893` and `17900-17999` by default. If startup reports
 
 These commands are for **Docker / source deployments**. Windows portable users can use the three double-click launchers above for everyday operations.
 
+**Shell: PowerShell / Bash / Zsh (run individual commands from the source directory as needed).** CMD can run the commands too, but does not support `#` comments; skip those lines.
+
 ```bash
 # Status
 docker compose ps
@@ -250,9 +281,9 @@ Do not run `docker compose down -v` unless you intend to delete subscriptions, s
 
 After changing local code, run `npm run docker:update`. It rebuilds and force-recreates only the management service, then waits for a passing health check. The Mihomo container and persistent data are preserved.
 
-For an active development session, keep this running in a separate terminal:
+For an active development session, keep this running in a separate terminal. **PowerShell / CMD / Bash / Zsh, from the source directory:**
 
-```bash
+```text
 npm run docker:watch
 ```
 
@@ -260,7 +291,9 @@ Compose watches application source, server code, dependencies, and container con
 
 ### Reset the administrator password
 
-```bash
+**Shell: PowerShell / CMD / Bash / Zsh (from the source directory).**
+
+```text
 npm run init -- --reset-password
 docker compose up -d --force-recreate proxy-port-manager
 ```
@@ -325,7 +358,9 @@ No. Docker volumes persist by default. Data is preserved across `docker compose 
 
 For in-page update notifications, administrator-triggered upgrades and automatic restart, use the version button at the bottom of the sidebar or Settings. See the [web update guide](docs/UPDATING_EN.md) / [简体中文](docs/UPDATING.md). Docker installations require one-time updater registration.
 
-```bash
+**Shell: PowerShell / CMD / Bash / Zsh (from the source directory).**
+
+```text
 npm ci
 npm test
 npm run build

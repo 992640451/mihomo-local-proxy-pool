@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero.png" alt="三个代理节点汇入一个本地端口，再连接到本机应用" width="100%" />
+  <img src="assets/readme-hero.png" alt="Proxy Port Manager 手绘科幻横幅：多个卫星节点的彩色数据航线汇入中央空间站，再通过一个稳定入口连接本地终端" width="100%" />
 </p>
 
 <h1 align="center">Proxy Port Manager</h1>
@@ -24,7 +24,9 @@
   <a href="#3-分钟启动"><strong>3 分钟启动</strong></a> ·
   <a href="#第一次使用"><strong>第一次使用</strong></a> ·
   <a href="#如何让应用使用代理"><strong>接入应用</strong></a> ·
-  <a href="#常见问题"><strong>常见问题</strong></a>
+  <a href="#常见问题"><strong>常见问题</strong></a> ·
+  <a href="https://github.com/992640451/mihomo-local-proxy-pool/releases"><strong>下载版本</strong></a> ·
+  <a href="CHANGELOG.md"><strong>变更记录</strong></a>
 </p>
 
 ---
@@ -44,18 +46,6 @@
 
 适合本地开发、爬虫、自动化工具或任何需要稳定 HTTP / SOCKS5 代理入口的应用。
 
-## 1.2.0 更新重点
-
-本分支版本为 **1.2.0**；已公开的安装包及镜像以 [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases) 为准。更新源码不会自动更新已发布的安装包。
-
-- **节点与端口可观测性**：真实节点健康、批量延迟测试、端口验证历史和 24 小时失败趋势。后台检测默认关闭，可按需开启并限制流量与历史容量。
-- **脚本自动化**：提供 `/api/v1`、OpenAPI、可撤销的作用域令牌，以及 `ppm doctor / backup / restore / ports list / subscriptions refresh`。
-- **恢复前预检**：先查看订阅、节点和端口的增改删，再用有效期为 10 分钟的签名计划显式应用；配置变化后必须重新预检。
-- **可靠性修复**：订阅变更在 Mihomo 确认重载后才提交，失败恢复原状态；加强 YAML 错误、历史审计脱敏和调度器异常诊断。
-- **Windows 双击使用**：完整解压便携包后，双击“启动管理器.cmd”即可后台运行并打开页面，提供独立的打开/停止入口和中英文入门说明。
-
-详细用法见 [可观测性](OBSERVABILITY.md)、[自动化 API 与 CLI](AUTOMATION.md) 和 [完整变更记录](CHANGELOG.md)。
-
 > [!IMPORTANT]
 > 本项目只管理你有权使用的订阅，不提供代理节点。默认仅监听 `127.0.0.1`，定位是单机、本地代理池，不是公网代理服务。
 
@@ -65,6 +55,8 @@
 
 - **便携服务包（新手推荐）**：适合 Windows、Linux 和 macOS，不需要安装 Docker、Git 或系统级 Node.js；启动后使用浏览器管理。
 - **Docker Compose（进阶部署）**：适合已有 Docker 的开发机、NAS 和长期运行环境。
+
+安装包与镜像请查看 [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases)，版本变化见 [变更记录](CHANGELOG.md)。使用已发布版本时，请以对应版本附带的文档为准；源码分支可能包含尚未发布的功能。
 
 ### Windows：下载、解压、双击启动（推荐）
 
@@ -87,13 +79,30 @@ Windows 包根目录只保留这三个操作入口；底层命令行入口收在
 
 关闭浏览器或启动窗口**不会停止代理**；电脑重启后需要再次双击启动，没有开机自启。密码仅在首次生成时显示，不会写入后台日志。
 
-这些双击入口从 **1.2.0** 开始随 Windows 便携包提供；公开下载是否已包含它们以 Release 附件为准，旧包可参照其自带的便携部署文档。解压目录内可双击阅读 [开始使用.txt](开始使用.txt)（[English](START_HERE.txt)）。需要命令行操作时见 [便携部署文档](PORTABLE_ZH.md#windows-命令行进阶)。
+如果解压后的包不包含这些双击入口，请参照该包附带的便携部署文档。包含双击入口的包可在解压目录内双击阅读 [开始使用.txt](开始使用.txt)（[English](START_HERE.txt)）。需要命令行操作时见 [便携部署文档](PORTABLE_ZH.md#windows-命令行进阶)。
 
 便携版把订阅、密钥、会话和端口池保存在解压目录的 `data` 文件夹中。更新前先停止服务并备份该目录，不要用新包覆盖它。详细说明见 [便携部署文档](PORTABLE_ZH.md)。
 
+<details>
+<summary><strong>Windows 命令行：PowerShell / CMD</strong></summary>
+
+在解压目录打开 **PowerShell 或命令提示符（CMD）**，以下命令两者通用，请按需逐条执行：
+
+```bat
+.\bin\ppm.cmd start --background
+.\bin\ppm.cmd status
+.\bin\ppm.cmd stop
+```
+
+启动时无需自动打开浏览器，可执行 `.\bin\ppm.cmd start --background --no-open`。Windows 使用 `bin\ppm.cmd`；下方的 `./ppm` 是 Linux / macOS 入口。
+
+</details>
+
 ### Linux / macOS 便携部署
 
-下载对应系统与架构（x64 或 arm64）的 `.tar.gz`，解压后进入目录：
+下载对应系统与架构（x64 或 arm64）的 `.tar.gz`，解压后在终端进入目录。
+
+**执行终端：Linux / macOS 的 Bash 或 Zsh。** `./ppm` 由系统的 `/bin/sh` 解释执行，不能直接复制到 Windows PowerShell 或 CMD。以下命令按需逐条执行：
 
 ```bash
 ./ppm start
@@ -117,7 +126,9 @@ Windows 用户请确认 Docker Desktop 正在使用 Linux containers。
 
 #### 2. 安装并启动
 
-```bash
+**执行终端：PowerShell / CMD / Bash / Zsh（以下命令通用）。**
+
+```text
 git clone https://github.com/992640451/mihomo-local-proxy-pool.git
 cd mihomo-local-proxy-pool
 npm run init
@@ -130,11 +141,18 @@ docker compose up -d --build
 
 访问 [http://127.0.0.1:4173](http://127.0.0.1:4173)，使用初始化时显示的账号和密码登录。
 
-检查服务是否正常：
+检查服务是否正常。**Linux / macOS（Bash / Zsh）：**
 
 ```bash
 docker compose ps
 curl http://127.0.0.1:4173/healthz
+```
+
+**Windows（PowerShell / CMD）：**
+
+```bat
+docker compose ps
+curl.exe http://127.0.0.1:4173/healthz
 ```
 
 看到 `status: ok` 即表示管理服务已经就绪。
@@ -158,6 +176,8 @@ curl http://127.0.0.1:4173/healthz
 
 ### 命令行
 
+**Linux / macOS（Bash / Zsh）：**
+
 ```bash
 # HTTP / HTTPS
 curl --proxy http://127.0.0.1:17900 https://api.ipify.org
@@ -166,9 +186,18 @@ curl --proxy http://127.0.0.1:17900 https://api.ipify.org
 curl --proxy socks5h://127.0.0.1:17900 https://api.ipify.org
 ```
 
-Windows PowerShell 可把 `curl` 替换为 `curl.exe`。
+**Windows（PowerShell / CMD）：** 第一条测试 HTTP / HTTPS，第二条测试 SOCKS5 并由代理端解析域名。
+
+```bat
+curl.exe --proxy http://127.0.0.1:17900 https://api.ipify.org
+curl.exe --proxy socks5h://127.0.0.1:17900 https://api.ipify.org
+```
+
+Windows 显式使用 `curl.exe`，避免 Windows PowerShell 将 `curl` 识别为 `Invoke-WebRequest` 的别名。
 
 ### 环境变量
+
+以下是需要配置的变量名和值，不是直接粘贴到终端执行的命令；请填入所用应用的环境变量设置：
 
 ```text
 HTTP_PROXY=http://127.0.0.1:17900
@@ -210,7 +239,7 @@ ALL_PROXY=socks5h://127.0.0.1:17900
 - 会话、订阅和端口池持久化，容器重建后仍可恢复。
 - 口令加密的配置备份与失败自动回滚。
 - 持久化操作审计与脱敏系统诊断导出。
-- 带作用域的 API 令牌、版本化 API、OpenAPI 和脚本命令；恢复预检与显式应用。
+- 带作用域的 API 令牌、版本化 API、OpenAPI 和脚本命令；恢复预检与显式应用。参见 [自动化 API 与 CLI](AUTOMATION.md)。
 - 可选迁移 Clash Verge 远程订阅。
 
 ## 它如何工作
@@ -233,6 +262,8 @@ Compose 默认发布 `17891-17893` 和 `17900-17999`。如果启动时报端口�
 
 以下命令适用于 **Docker / 源码部署**，Windows 便携用户日常使用上面的三个双击入口即可。
 
+**执行终端：PowerShell / Bash / Zsh（在源码目录按需执行）。** CMD 也能运行其中的命令，但不支持 `#` 注释，请跳过注释行。
+
 ```bash
 # 查看状态
 docker compose ps
@@ -252,9 +283,9 @@ docker compose down
 
 本地修改代码后运行 `npm run docker:update`。该命令会重建并强制替换管理服务容器，等待健康检查通过后再结束，不会重建 Mihomo 容器，也不会删除持久化数据。
 
-需要持续开发时，可在单独终端运行：
+需要持续开发时，可在单独终端运行。**PowerShell / CMD / Bash / Zsh 通用，在源码目录执行：**
 
-```bash
+```text
 npm run docker:watch
 ```
 
@@ -262,7 +293,9 @@ Compose 会监听应用源码、服务端代码、依赖和容器配置的变化
 
 ### 忘记管理密码
 
-```bash
+**执行终端：PowerShell / CMD / Bash / Zsh（在源码目录执行）。**
+
+```text
 npm run init -- --reset-password
 docker compose up -d --force-recreate proxy-port-manager
 ```
@@ -325,7 +358,9 @@ Docker 用户运行 `docker compose ps` 和 `docker compose logs mihomo-core`，
 
 ## 开发
 
-```bash
+**执行终端：PowerShell / CMD / Bash / Zsh（在源码目录执行）。**
+
+```text
 npm ci
 npm test
 npm run build
