@@ -57,9 +57,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .sidebar nav button.active { color: var(--amber-bright); border-left-color: var(--amber); background: linear-gradient(90deg, rgba(245,158,11,.13), rgba(245,158,11,.02)); }
 .sidebar nav button b { margin-left: auto; padding: 1px 6px; border: 1px solid #515a61; border-radius: 10px; color: #aeb6bd; font: 500 10px 'IBM Plex Mono'; }
 .sidebar-foot { border-top: 1px solid var(--line); }
-.server-health { padding: 17px 14px; display: flex; align-items: center; gap: 10px; }
-.server-health > i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
-.server-health span { display: flex; flex-direction: column; gap: 2px; }.server-health strong { font: 500 10px 'IBM Plex Mono'; color: #cad1d6; }.server-health small { font-size: 10px; color: #68737c; }
 .collapse { width: 100%; height: 38px; background: transparent; color: #77828a; border: 0; border-top: 1px solid var(--line-soft); cursor: pointer; font-size: 24px; }
 
 .workspace { grid-row: 2; padding: 18px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
@@ -120,7 +117,7 @@ tbody tr:hover td { background: rgba(255,255,255,.018); }.selected-row td { back
 }
 @media (max-width: 1180px) {
   .app-shell, .app-shell.drawer-open { grid-template-columns: 70px minmax(930px, 1fr); }
-  .sidebar { width:70px; }.sidebar nav button { padding: 0; justify-content: center; }.sidebar nav button span, .sidebar nav button b, .server-health span { display: none; }.server-health { justify-content: center; }
+  .sidebar { width:70px; }.sidebar nav button { padding: 0; justify-content: center; }.sidebar nav button span, .sidebar nav button b { display: none; }
   .brand { padding-left: 18px; }.topbar { grid-template-columns: 270px 1fr auto; }.system-metrics > span:nth-child(2), .system-strip span:nth-child(3) { display: none; }
 }
 
@@ -232,11 +229,11 @@ small.observation-note { display: block; }
   .app-shell:has(:is(.observation-page, .automation-page)) { grid-template: 58px auto 1fr / minmax(0, 1fr); }
   .app-shell:has(:is(.observation-page, .automation-page)) .topbar { grid-template-columns: minmax(0, 1fr) auto; }
   .app-shell:has(:is(.observation-page, .automation-page)) .system-strip, .app-shell:has(:is(.observation-page, .automation-page)) .version { display: none; }
-  .app-shell:has(:is(.observation-page, .automation-page)) .sidebar { grid-row: 2; position: static; height: auto; width: auto; overflow: hidden; }
+  .app-shell:has(:is(.observation-page, .automation-page)) .sidebar { grid-row: 2; position: relative; top: auto; height: auto; width: auto; }
   .app-shell:has(:is(.observation-page, .automation-page)) .sidebar nav { display: flex; overflow-x: auto; padding: 4px; }
   .app-shell:has(:is(.observation-page, .automation-page)) .sidebar nav button { width: auto; flex: 0 0 auto; gap: 8px; padding: 0 12px; white-space: nowrap; }
   .app-shell:has(:is(.observation-page, .automation-page)) .sidebar nav button span { display: inline; }
-  .app-shell:has(:is(.observation-page, .automation-page)) .sidebar-foot { display: none; }
+  .app-shell:has(:is(.observation-page, .automation-page)) .sidebar-foot { display: block; }
   .app-shell:has(:is(.observation-page, .automation-page)) .workspace { grid-row: 3; }
   .observation-page .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .observation-page .toolbar { flex-wrap: wrap; }
@@ -268,3 +265,53 @@ small.observation-note { display: block; }
 .automation-diff { overflow-wrap: anywhere; }
 .recovery-summary details { margin-top: 12px; }
 @media (max-width: 640px) { .automation-inputs { grid-template-columns: 1fr; } .automation-token { align-items: flex-start; } .automation-page .setting-row { flex-wrap: wrap; gap: 12px; } .automation-page .diagnostic-row { grid-template-columns: 12px minmax(0, 1fr); } .automation-page .detail-list dd { overflow-wrap: anywhere; } }
+.update-center { position:relative; }
+.update-version-button { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; padding:16px 14px; border:0; background:transparent; color:#b5c0ce; text-align:left; cursor:pointer; }
+.update-version-button:hover { background:rgba(255,255,255,.04); color:#eef2f5; }
+.update-version-button:focus-visible { outline-offset:-3px; }
+.update-version-button.has-update { color:#fbbf24; background:#292317; }
+.update-version-copy { display:flex; min-width:0; flex-direction:column; gap:5px; }
+.update-version-label { display:flex; align-items:center; gap:7px; }
+.update-version-label strong { font:500 12px 'IBM Plex Mono',monospace; overflow-wrap:anywhere; }
+.update-version-copy small { color:var(--muted); font-size:9px; }
+.update-version-action { flex:none; font-size:12px; }
+.update-version-button i { flex:none; width:6px; height:6px; border-radius:50%; background:#fbbf24; }
+.update-tip { position:absolute; z-index:110; bottom:calc(100% + 12px); left:12px; width:min(380px,calc(100vw - 32px)); max-height:calc(100dvh - 150px); overflow:auto; padding:20px; border:1px solid #6f5830; border-radius:8px; background:#161c24; box-shadow:0 16px 60px #0008; color:#e5edf6; }
+.update-tip p { color:#99a5b4; font-size:13px; margin:9px 0 16px; }
+.update-tip-actions { display:flex; gap:10px; }
+.update-tip.success { border-color:#2e755d; }
+.update-backdrop { position:fixed; inset:0; z-index:120; display:flex; align-items:center; justify-content:center; background:#05090dbd; padding:20px; }
+.update-dialog { display:flex; flex-direction:column; width:min(620px,100%); max-height:calc(100dvh - 40px); background:#10171f; color:#dbe5ef; border:1px solid #354456; border-radius:9px; box-shadow:0 20px 90px #0009; overflow:hidden; }
+.update-dialog header { display:flex; align-items:center; justify-content:space-between; padding:22px 24px; border-bottom:1px solid var(--line); }
+.update-dialog h2 { margin:5px 0 0; font-size:22px; }
+.update-eyebrow { font:10px 'IBM Plex Mono',monospace; letter-spacing:2px; color:#8093a7; }
+.update-dialog-body { overflow:auto; padding:22px 24px; }
+.update-version-row { display:flex; align-items:center; gap:32px; margin-bottom:14px; }
+.update-version-row>div { display:flex; flex-direction:column; gap:8px; }
+.update-version-row small,.update-muted { color:#8799ac; font-size:12px; line-height:1.8; }
+.update-version-row strong { font:600 25px 'IBM Plex Mono',monospace; }
+.update-notes { padding:14px; margin:18px 0; background:#0b1118; border:1px solid #283543; border-radius:5px; }
+.update-notes summary { cursor:pointer; font-size:13px; }
+.update-notes pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.9 inherit; color:#a5b4c4; max-height:220px; overflow:auto; }
+.update-impact { font-size:13px; line-height:1.9; color:#b1c0cf; }
+.update-warning { color:#f3bc7a; font-size:13px; line-height:1.8; overflow-wrap:anywhere; }
+.update-job { border:1px solid #344d64; padding:16px; border-radius:5px; background:#132232; font-size:13px; line-height:1.8; margin:16px 0; }
+.update-job.success { border-color:#2b7156; background:#12271f; }
+.update-job progress { display:block; width:100%; height:8px; accent-color:#f3b944; margin:14px 0 4px; }
+.update-preference { display:flex; gap:9px; align-items:center; font-size:12px; color:#96a7b8; margin-top:18px; }
+.update-dialog footer { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:16px 24px; border-top:1px solid var(--line); }
+.update-dialog footer .primary { margin-left:auto; }
+.update-settings-entry { display:flex; flex-wrap:wrap; gap:18px; justify-content:space-between; align-items:center; padding:20px 24px; margin-bottom:20px; }
+.update-settings-entry p { color:#8b9daf; font-size:12px; line-height:1.8; margin:6px 0 0; }
+@media (max-width:1180px) {
+  .update-version-button { padding:16px 5px; justify-content:center; }
+  .update-version-label { gap:3px; }
+  .update-version-label strong { font-size:10px; }
+  .update-version-copy small,.update-version-action { display:none; }
+}
+@media (max-width:1000px) {
+  .app-shell:has(:is(.observation-page, .automation-page)) .update-version-button { padding:10px 16px; justify-content:space-between; }
+  .app-shell:has(:is(.observation-page, .automation-page)) .update-version-copy { flex-direction:row; align-items:center; gap:12px; }
+  .app-shell:has(:is(.observation-page, .automation-page)) :is(.update-version-copy small,.update-version-action) { display:block; }
+  .app-shell:has(:is(.observation-page, .automation-page)) .update-tip { top:calc(100% + 8px); bottom:auto; }
+}

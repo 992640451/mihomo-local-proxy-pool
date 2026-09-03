@@ -41,6 +41,7 @@ RUN mkdir -p /data /mihomo && chown node:node /data /mihomo
 
 COPY server ./server
 COPY shared ./shared
+COPY release ./release
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/build-info.json ./build-info.json
 

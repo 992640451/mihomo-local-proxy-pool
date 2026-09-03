@@ -4,6 +4,8 @@
 
 Examples use **1.2.0**. M2 is a release-engineering roadmap milestone, not an application version. Version preparation, a local commit, pushing a tag and publishing a Release are separate steps. Changing the version does not mean it is published. Use a new semantic version for subsequent releases; never overwrite a public version.
 
+The version currently being prepared is **1.3.0**, which introduces web updates. Existing installations need one manual upgrade first; see the [English upgrade guide](docs/UPDATING_EN.md) / [简体中文](docs/UPDATING.md). Replace historical version numbers in the examples below with the release being prepared.
+
 ## Preparation
 
 1. In the same commit, update `package.json`, both the top-level and `packages[""]` versions in `package-lock.json`, the management image tag in `compose.yaml`, and nonempty version sections in `CHANGELOG.md` / `CHANGELOG_EN.md`. Synchronize both READMEs and guides. API v1's contract version does not automatically follow application minor versions.
@@ -11,6 +13,19 @@ Examples use **1.2.0**. M2 is a release-engineering roadmap milestone, not an ap
 3. Check `release/core-manifest.json`: all targets must use the same Mihomo version and have SHA-256 hashes. When upgrading Mihomo, also synchronize its Compose version and subscription User-Agent.
 4. Check the Release workflow's Node version against Dockerfile. Windows/Linux/macOS support x64 and arm64, built on native runners rather than copying host Node across targets.
 5. Actions must be allowed to publish Packages and generate attestations. After the first release, check GHCR package visibility and repository association. A pre-existing package without repository access may reject `GITHUB_TOKEN` pushes.
+
+### Update signing preflight
+
+Before publishing a stable release, configure the private key matching `release/update-public-keys.json` as the repository Actions Secret `UPDATE_SIGNING_PRIVATE_KEY`. Keep the same signing key across releases. Before any image push, the workflow checks the key, built-in public key and supported source-version range; missing or mismatched configuration stops publication.
+
+Local checks do not print the private key:
+
+```text
+node scripts/validate-update-signing.mjs --root . --key-file .local/update-signing/<key-id>.pem
+npm run release:validate -- --tag v1.3.0
+```
+
+The final `update-manifest.json` is published with the archives, metadata and checksums. Existing installations must complete the initial enrollment described in the upgrade guide. Web updates accept only higher stable versions with manifests signed by a built-in trusted key.
 
 ## Triggers and permissions
 

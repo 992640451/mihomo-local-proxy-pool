@@ -323,6 +323,8 @@ No. Docker volumes persist by default. Data is preserved across `docker compose 
 
 ## Development
 
+For in-page update notifications, administrator-triggered upgrades and automatic restart, use the version button at the bottom of the sidebar or Settings. See the [web update guide](docs/UPDATING_EN.md) / [简体中文](docs/UPDATING.md). Docker installations require one-time updater registration.
+
 ```bash
 npm ci
 npm test

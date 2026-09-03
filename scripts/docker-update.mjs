@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { readJson, writeJson } from "../server/updates/files.mjs";
 
 const compose = ["compose"];
 const service = "proxy-port-manager";
@@ -42,8 +44,26 @@ async function waitForHealth() {
 }
 
 try {
+  const managedFile = path.resolve('.local/updater/control/deployment.compose.json');
+  const registration = await readJson(path.resolve('.local/updater/control/deployment.json'));
+  const managed = registration ? await readJson(managedFile) : null;
+  let sourceConfig;
+  if (managed) {
+    if (await readJson(path.resolve('.local/updater/state/pending.json'))) throw new Error('网页更新或恢复任务尚未完成，请完成该任务后再更新开发容器');
+    sourceConfig = JSON.parse(runDocker(['config', '--format', 'json'], { capture: true }));
+    if (managed.name !== sourceConfig.name || registration.project !== sourceConfig.name) throw new Error('更新器登记与当前 Compose 项目不一致');
+  }
   console.log(`[docker:update] 构建 ${service} 镜像…`);
   runDocker(["build", service]);
+
+  if (managed) {
+    const image = spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', sourceConfig.services[service].image], { encoding: 'utf8' });
+    if (image.status !== 0 || !/^sha256:[a-f0-9]{64}$/.test(image.stdout?.trim())) throw new Error('无法确认新构建的镜像');
+    managed.services[service].image = image.stdout.trim();
+    await writeJson(managedFile, managed);
+    compose.push('-p', managed.name, '-f', managedFile);
+    console.log('[docker:update] 保留现有网页更新器和数据卷接入。');
+  }
 
   console.log(`[docker:update] 使用新镜像重建 ${service} 容器…`);
   runDocker([

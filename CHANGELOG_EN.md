@@ -6,6 +6,25 @@ Public versions follow semantic versioning. This file records user-facing behavi
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-03
+
+### Added
+
+- Version controls in the sidebar and Settings, with new-release tips, release notes, reminders and an ignore option. Automatic checks can be disabled and never install updates automatically.
+- After administrator confirmation, an independent updater downloads and verifies the release, backs up complete data, installs it and restarts the service. The page reconnects and confirms the running version before reporting success.
+- Support for standard portable bundles and Docker Compose installations enrolled with the updater, preserving login sessions, subscriptions, port pools, account keys, settings and runtime data.
+- Cancellation before installation, consistent program/data rollback on installation or verification failure, and local recovery commands for interrupted updates.
+- Ed25519-signed release manifests binding archive checksums, source revision, and application/core image digests.
+
+### Fixed
+
+- Updated the transitive `qs` dependency from 6.15.3 to 6.16.0, addressing upstream denial-of-service issues in query parsing and serialization.
+
+### Improved
+
+- The Docker development update command preserves updater enrollment and data volumes, and refuses recreation while a web update is pending.
+- Chinese and English instructions for upgrades, initial enrollment and recovery. Existing users must manually install a version with the updater once before future web updates are available.
+
 ## [1.2.0] - 2026-09-03
 
 ### Added

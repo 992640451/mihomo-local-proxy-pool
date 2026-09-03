@@ -69,7 +69,8 @@ test('应用、锁文件、Compose 和双语变更记录版本一致', async () 
   assert.ok(extractChangelogSection(english, version))
   const versions = text => [...text.matchAll(/^## \[(\d[^\]]*)\] - (\d{4}-\d{2}-\d{2})$/gm)].map(match => [match[1], match[2]])
   assert.deepEqual(versions(chinese.replaceAll('\r', '')), versions(english.replaceAll('\r', '')))
-  for (const file of ['README.md', 'README_EN.md', 'RELEASING.md', 'RELEASING_EN.md']) {
+  // README describes capabilities and links to releases without embedding the current version.
+  for (const file of ['RELEASING.md', 'RELEASING_EN.md']) {
     assert.ok((await read(file)).includes(version), `${file} missing current version`)
   }
 })

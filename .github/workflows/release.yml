@@ -63,6 +63,11 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Validate update signing before any image push
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && steps.metadata.outputs.prerelease != 'true'
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+        run: node tooling/scripts/validate-update-signing.mjs --root source
       - name: Install, test and build
         working-directory: source
         run: |
@@ -230,6 +235,20 @@ jobs:
           pattern: portable-*
           path: release-assets
           merge-multiple: true
+      - name: Resolve pinned Mihomo image for updates
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && needs.validate.outputs.prerelease != 'true'
+        shell: bash
+        run: |
+          core_version=$(node -p "JSON.parse(require('fs').readFileSync('source/release/core-manifest.json')).version")
+          core_digest=$(docker buildx imagetools inspect "docker.io/metacubex/mihomo:v${core_version}" --format '{{.Manifest.Digest}}')
+          echo "RELEASE_CORE_IMAGE=docker.io/metacubex/mihomo@${core_digest}" >> "$GITHUB_ENV"
+      - name: Sign machine-readable update manifest
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && needs.validate.outputs.prerelease != 'true'
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+          RELEASE_IMAGE: ${{ needs.validate.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+        run: node tooling/scripts/create-update-manifest.mjs --root source --directory release-assets
       - name: Create checksums (archives, SBOMs and build metadata)
         run: node tooling/scripts/create-checksums.mjs --directory release-assets --output release-assets/SHA256SUMS.txt --expected "${{ needs.validate.outputs.count }}"
       - name: Generate release notes

@@ -11,6 +11,8 @@ dist/
 .docker-artifacts/
 $artifact/
 .git-transaction/
+/.ppm-updates/
+/releases/
 .playwright-cli/
 output/
 20260819-005152

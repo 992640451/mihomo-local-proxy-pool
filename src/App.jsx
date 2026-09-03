@@ -6,6 +6,7 @@ import { useCatalog } from "./hooks/useCatalog.js";
 import { LogsPage } from "./pages/LogsPage.jsx";
 import { OverviewPage } from "./pages/OverviewPage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
+import { UpdateCenter } from "./components/UpdateCenter.jsx";
 import { NodesPage } from "./pages/NodesPage.jsx";
 import { ObservabilityPage } from "./pages/ObservabilityPage.jsx";
 import {
@@ -1860,13 +1861,7 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="server-health">
-            <i />
-            <span>
-              <strong>{runtime.hostname}</strong>
-              <small>{catalog.source}</small>
-            </span>
-          </div>
+          <UpdateCenter version={liveRuntime.appVersion} />
         </div>
       </aside>
       <main className="workspace">{pages[active]}</main>

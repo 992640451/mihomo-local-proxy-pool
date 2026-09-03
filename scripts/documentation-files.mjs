@@ -13,6 +13,7 @@ export const DOCUMENTATION_PAIRS = [
   ['CONTRIBUTING.md', 'CONTRIBUTING_EN.md'],
   ['SECURITY.md', 'SECURITY_EN.md'],
   ['docs/ARCHITECTURE.md', 'docs/ARCHITECTURE_EN.md'],
+  ['docs/UPDATING.md', 'docs/UPDATING_EN.md'],
   ['THIRD_PARTY_NOTICES_ZH.md', 'THIRD_PARTY_NOTICES.md'],
 ]
 
@@ -23,6 +24,7 @@ export const DOCUMENTATION_FILES = [
   'START_HERE.txt',
   'LICENSE',
   'assets/readme-hero.png',
+  'docs/UPGRADE_DESIGN.md',
 ]
 
 export async function copyDocumentation(sourceRoot, destinationRoot) {

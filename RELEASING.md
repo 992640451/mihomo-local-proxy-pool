@@ -4,6 +4,8 @@
 
 本文以 **1.2.0** 为例。M2 是发布工程的路线图阶段名，不是应用版本。版本准备、本地提交、推送标签和公开 Release 是不同步骤；更新版本号并不代表已发布。后续发布使用新的语义化版本，不覆盖已有公开版本。
 
+当前准备发布的版本为 **1.3.0**。本次新增网页更新；已部署的旧包先手动更新一次，接入与恢复流程见 [中文升级指南](docs/UPDATING.md) / [English](docs/UPDATING_EN.md)。下文历史命令示例中的版本号应替换为本次版本。
+
 ## 发布前准备
 
 1. 在同一提交中更新 `package.json`、`package-lock.json` 顶层与 `packages[""]` 版本、`compose.yaml` 管理服务镜像标签，以及 `CHANGELOG.md` / `CHANGELOG_EN.md` 的对应非空版本章节。同步双语 README 和指南；API v1 合同版本不随应用次版本自动变化。
@@ -11,6 +13,19 @@
 3. 核对 `release/core-manifest.json`：每个目标必须来自同一个 Mihomo 版本并有 SHA-256。升级核心时也同步 Compose 的核心版本和订阅 User-Agent。
 4. 核对 Release 工作流的 Node 版本与 Dockerfile。Windows/Linux/macOS 均支持 x64 和 arm64；在原生 runner 构建，不交叉复制宿主 Node。
 5. 仓库 Actions 必须允许发布 Packages 和生成 attestations。首次发布后检查 GHCR package 是否公开且关联本仓库。现有同名 package 如未授予仓库访问权限，`GITHUB_TOKEN` 可能无法推送。
+
+### 更新签名预检
+
+正式稳定版发布前，将 `release/update-public-keys.json` 对应的私钥配置为仓库 Actions Secret `UPDATE_SIGNING_PRIVATE_KEY`。不要每次发布都生成新密钥。工作流在推送镜像前校验签名密钥、公钥和来源版本范围；缺失或不匹配时停止发布。
+
+本地仅验证，不输出私钥：
+
+```text
+node scripts/validate-update-signing.mjs --root . --key-file .local/update-signing/<密钥编号>.pem
+npm run release:validate -- --tag v1.3.0
+```
+
+最终 `update-manifest.json` 与归档、元数据和校验和一并发布。原有版本需按升级指南完成首次接入；网页更新只接受更高的正式版本及内置信任公钥签名的清单。
 
 ## 触发与权限
 

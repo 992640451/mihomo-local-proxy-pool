@@ -65,7 +65,7 @@ async function main() {
     mkdir(path.join(stage, 'app'), { recursive: true }),
   ])
 
-  const appFiles = ['server', 'shared', 'scripts', 'dist', 'package.json', 'package-lock.json']
+  const appFiles = ['server', 'shared', 'scripts', 'release', 'dist', 'package.json', 'package-lock.json']
   for (const value of appFiles) await cp(path.join(projectRoot, value), path.join(stage, 'app', value), { recursive: true })
   await copyDocumentation(projectRoot, stage)
   await copyPortableLaunchers(projectRoot, stage)
@@ -104,6 +104,7 @@ async function main() {
   await writeJson(path.join(stage, 'sbom.cdx.json'), extendSbom(npmBom, metadata, natives))
   await writeJson(`${archive}.build.json`, metadata)
   await cp(path.join(stage, 'sbom.cdx.json'), `${archive}.cdx.json`)
+  await rm(path.join(stage, 'app', 'node_modules', '.bin'), { recursive: true, force: true })
   if (process.platform === 'win32') run(tarCommand(), ['-a', '-cf', archive, '-C', outputRoot, name])
   else run(tarCommand(), ['-czf', archive, '-C', outputRoot, name])
   console.log(`便携包已生成：${archive}`)

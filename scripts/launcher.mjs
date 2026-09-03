@@ -15,6 +15,7 @@ import {
 } from '../server/runtime/paths.mjs'
 import { CoreSupervisor } from '../server/runtime/coreSupervisor.mjs'
 import { AUTOMATION_COMMANDS, AUTOMATION_USAGE, runAutomation } from './automation-cli.mjs'
+import { registerPortableUpdates } from '../server/updates/runtime.mjs'
 
 const entryFile = fileURLToPath(import.meta.url)
 const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
@@ -108,6 +109,7 @@ async function listen(server, port = 0) {
 
 async function serve({ shouldOpen = true } = {}) {
   const { paths, runtime } = await prepareRuntime({ announceCredentials: true })
+  await registerPortableUpdates(paths, runtime)
   const lock = await acquireLock(paths.lockFile)
   let controlServer = null
   let application = null
@@ -266,10 +268,31 @@ async function showStatus({ open = false } = {}) {
 function usage() {
   console.log(`Proxy Port Manager 便携服务\n\n用法：\n  ppm start [--background] [--no-open]\n  ppm stop\n  ppm restart [--background] [--no-open]\n  ppm status\n  ppm open\n\n不带 --background 时在前台运行，按 Ctrl+C 停止。`)
   console.log(`\n${AUTOMATION_USAGE}`)
+  console.log('\n更新中断恢复：ppm recover-update；日常版本更新在管理页面完成。')
 }
 
 async function main() {
   const [command = 'start', ...args] = process.argv.slice(2)
+  const installRoot = path.resolve(process.env.PPM_INSTALL_ROOT || process.env.PPM_ROOT || path.join(path.dirname(entryFile), '..'))
+  const updateDirectory = process.env.PPM_UPDATE_DIR || path.join(installRoot, '.ppm-updates')
+  if (command === 'recover-update') {
+    const runner = path.join(updateDirectory, 'runner')
+    const child = spawn(path.join(runner, process.platform === 'win32' ? 'node.exe' : 'node'), [path.join(runner, 'server', 'updates', 'worker.mjs'), '--directory', updateDirectory, '--once', '--recover'], { stdio: 'inherit', windowsHide: true })
+    process.exitCode = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', code => resolve(code || 0)) })
+    return
+  }
+  if (['start', 'restart', '_serve'].includes(command) && process.env.PPM_UPDATE_START !== '1' && await readJson(path.join(updateDirectory, 'maintenance.json'))) throw new Error('上次更新尚未完成，请先运行 ppm recover-update 恢复服务')
+  const pointer = await readJson(path.join(updateDirectory, 'active-release.json'))
+  if (pointer && path.resolve(process.env.PPM_ROOT || installRoot) !== path.resolve(pointer.root)) {
+    const relative = path.relative(path.join(installRoot, 'releases'), pointer.root)
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('版本指针不在安装目录内')
+    const registered = await readJson(path.join(updateDirectory, 'deployment.json'))
+    const child = spawn(path.join(pointer.root, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'), [path.join(pointer.root, 'app', 'scripts', 'launcher.mjs'), command, ...args], {
+      stdio: 'inherit', windowsHide: true, env: { ...process.env, PPM_ROOT: pointer.root, PPM_INSTALL_ROOT: installRoot, PPM_DATA_DIR: registered.dataDir, PPM_CORE_DIR: registered.coreDir, PPM_CONFIG_FILE: registered.configFile, PPM_MIHOMO_BINARY: path.join(pointer.root, 'core', process.platform === 'win32' ? 'mihomo.exe' : 'mihomo'), PPM_UPDATE_DIR: updateDirectory },
+    })
+    process.exitCode = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', code => resolve(code || 0)) })
+    return
+  }
   if (AUTOMATION_COMMANDS.has(command)) { process.exitCode = await runAutomation(command, args); return }
   if (command === '_serve') return serve({ shouldOpen: !args.includes('--no-open') })
   const options = { shouldOpen: !args.includes('--no-open') }

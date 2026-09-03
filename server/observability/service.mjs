@@ -183,6 +183,7 @@ export class ObservationService {
   }
   start() {
     if (this.timer) return
+    this.stopping = false
     this.timer = setInterval(() => {
       if (!this.ticking) this.ticking = this.tick().catch(() => {}).finally(() => { this.ticking = null })
     }, 30000)

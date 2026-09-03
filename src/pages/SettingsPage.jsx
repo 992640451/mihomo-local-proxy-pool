@@ -88,7 +88,8 @@ export function SettingsPage({ runtime, refreshSeconds, setRefreshSeconds, reset
   };
 
   return <div className="page-stack automation-page">
-    <PageHead eyebrow="SYSTEM SETTINGS" title="系统设置" description="管理界面刷新、运行诊断、自动化权限和加密备份恢复。" />
+    <PageHead eyebrow="SYSTEM SETTINGS" title="系统设置" description="管理版本更新、运行诊断、自动化权限和加密备份恢复。" />
+    <section className="data-card update-settings-entry"><div><strong>版本更新</strong><p>当前 v{runtime.appVersion || 'unknown'} · 查看新版本，主动更新并自动重启服务。</p></div><button className="button primary" onClick={() => window.dispatchEvent(new Event('ppm:open-updates'))}>查看版本更新</button></section>
     {(error || message) && <div className={error ? "subscription-error" : "subscription-preview reliability-message"}>{error || message}</div>}
     <section className="data-card settings-card">
       <label className="setting-row"><span><strong>界面数据自动刷新</strong><small>仅刷新管理界面；订阅的服务端刷新周期在订阅页单独设置</small></span><Select value={String(refreshSeconds)} onChange={(value) => setRefreshSeconds(Number(value))}><option value="0">关闭</option><option value="30">30 秒</option><option value="60">1 分钟</option><option value="300">5 分钟</option></Select></label>
