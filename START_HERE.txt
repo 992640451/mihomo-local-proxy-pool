@@ -1,0 +1,70 @@
+Proxy Port Manager — Start here on Windows
+简体中文：开始使用.txt
+
+1. Download and extract
+In project Releases, download the portable ZIP containing windows-x64 in its name;
+choose windows-arm64 for an ARM PC.
+Releases: https://github.com/992640451/mihomo-local-proxy-pool/releases
+Do not download Source code. The portable bundle includes its runtime:
+no Node.js, Git or Docker installation is needed.
+Right-click the ZIP and choose Extract All into your own writable folder.
+Do not run files from inside the ZIP. Keep the whole folder together; create a
+desktop shortcut if needed instead of moving individual .cmd files.
+These double-click launchers are included from 1.2.0; for older bundles, see
+their included PORTABLE.md.
+
+2. Start and sign in
+Double-click 启动管理器.cmd (Start Manager) and wait for startup.
+On first start, save 管理账号 (administrator username) and 管理密码 (password)
+in your password manager. The password is shown only when generated; it is not
+stored in plaintext or in background logs.
+Your default browser opens when ready. Sign in with those credentials.
+The default URL is http://127.0.0.1:4173; if no browser opens, use the URL shown
+in the startup window. After saving the password, press any key to close that
+window. The service continues running in the background.
+
+3. Everyday use
+启动管理器.cmd (Start Manager): start, or reopen the page if already healthy.
+打开管理页面.cmd (Open Dashboard): open an already-running manager, without starting it.
+停止管理器.cmd (Stop Manager): stop the manager and bundled Mihomo, keeping all data.
+Closing the browser or startup window does not stop the proxy.
+After rebooting the PC, double-click Start Manager again; there is no auto-start.
+The filenames and most of the web interface are currently Chinese.
+
+4. Configure your first proxy
+This project does not provide nodes. Bring an authorized Mihomo / Clash subscription.
+Import it in 订阅 (Subscriptions), then use 代理端口 (Proxy Ports) to create a pool.
+Try port 17900 and Mixed protocol. Choose 手动选择 (Manual) for one node;
+主备切换 (Failover) requires at least two nodes.
+Save, then 检测 (Check) the listener and 验证 (Verify) the exit.
+Copy the corresponding proxy address into the app that needs it.
+The dashboard port 4173 is not a proxy port. System proxy settings are not changed.
+
+5. Troubleshooting
+- Extract everything. The folder must include runtime, core, app and bin\ppm.cmd.
+  Only the three Chinese-named operation launchers stay at the Windows root.
+  The underlying CLI is inside bin; do not move or delete it. No need to open it
+  for everyday use. Data stays at the extraction root, not inside bin.
+- Check that you downloaded the portable bundle, not source code, for your PC's
+  architecture, and check whether security software quarantined a file.
+  If you see a security warning, verify the official source and release checksums
+  first; do not disable security protection just to run the app.
+- A Docker instance, an older bundle or another copy may occupy the same ports.
+- Keep the error displayed in the window. Detailed logs are under
+  data\logs\application.log and data\logs\mihomo.log.
+- If an existing process is unhealthy, use Stop Manager and confirm success
+  before starting again.
+- Passwords cannot be recovered from logs. Save yours securely; do not delete
+  data or config.env to reinitialize the app.
+  If forgotten, stop and privately back up data, then follow "Forgotten
+  administrator password" in PORTABLE.md to contact the maintainers.
+  Do not upload data, configuration, passwords or subscription links, and do not
+  reuse Docker initialization commands.
+
+6. Updates and backups
+Stop the service, then back up the entire data folder. It contains keys;
+do not share it publicly. Extract the new bundle into a new folder, copy your
+backed-up data there and start the new version. Keep the old folder and backup
+until verification; never run both copies or downgrade against an upgraded database.
+
+More: README_EN.md and PORTABLE.md. Command-line use is optional and advanced.

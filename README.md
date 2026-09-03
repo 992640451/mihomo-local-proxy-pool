@@ -52,6 +52,7 @@
 - **脚本自动化**：提供 `/api/v1`、OpenAPI、可撤销的作用域令牌，以及 `ppm doctor / backup / restore / ports list / subscriptions refresh`。
 - **恢复前预检**：先查看订阅、节点和端口的增改删，再用有效期为 10 分钟的签名计划显式应用；配置变化后必须重新预检。
 - **可靠性修复**：订阅变更在 Mihomo 确认重载后才提交，失败恢复原状态；加强 YAML 错误、历史审计脱敏和调度器异常诊断。
+- **Windows 双击使用**：完整解压便携包后，双击“启动管理器.cmd”即可后台运行并打开页面，提供独立的打开/停止入口和中英文入门说明。
 
 详细用法见 [可观测性](OBSERVABILITY.md)、[自动化 API 与 CLI](AUTOMATION.md) 和 [完整变更记录](CHANGELOG.md)。
 
@@ -62,25 +63,31 @@
 
 项目支持两种本地部署方式：
 
-- **Docker Compose**：适合已有 Docker 的开发机、NAS 和长期运行环境。
-- **便携服务包**：适合 Windows、Linux 和 macOS，不需要安装 Docker、Git 或系统级 Node.js；启动后使用浏览器管理。
+- **便携服务包（新手推荐）**：适合 Windows、Linux 和 macOS，不需要安装 Docker、Git 或系统级 Node.js；启动后使用浏览器管理。
+- **Docker Compose（进阶部署）**：适合已有 Docker 的开发机、NAS 和长期运行环境。
 
-### Windows 便携部署
+### Windows：下载、解压、双击启动（推荐）
 
-从 [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases) 下载与系统架构匹配的便携 ZIP（x64 或 arm64），解压到可写目录后运行：
+1. 打开 [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases)，在附件中下载文件名含 `windows-x64.zip` 的便携包；ARM 电脑选择 `windows-arm64.zip`。**不要下载 `Source code` 源码包。**
+2. 右键 ZIP → **全部解压**，放到自己的可写目录。不要在压缩包里直接运行，也不要单独移动启动文件。
+3. 双击 **`启动管理器.cmd`**，等待就绪。第一次会显示“管理账号”和“管理密码”，请立即保存到密码管理器。
+4. 浏览器自动打开管理页面，使用刚才的账号和密码登录。保存密码后，按任意键关闭启动窗口即可，服务会继续在后台运行。
 
-```powershell
-.\ppm.cmd start
-```
+默认管理地址为 [http://127.0.0.1:4173](http://127.0.0.1:4173)。若浏览器未打开，使用启动窗口显示的地址手动访问。
 
-首次启动会显示随机生成的管理密码，并在 Mihomo 和管理服务就绪后自动打开浏览器。后台运行和管理命令：
+日常只需记住三个文件：
 
-```powershell
-.\ppm.cmd start --background
-.\ppm.cmd status
-.\ppm.cmd open
-.\ppm.cmd stop
-```
+| 文件 | 双击后的行为 |
+| --- | --- |
+| `启动管理器.cmd` | 后台启动并打开页面；已经正常运行时直接打开，不重复启动 |
+| `打开管理页面.cmd` | 打开已运行的管理页面；未运行时提示先启动 |
+| `停止管理器.cmd` | 停止管理器和内置 Mihomo，保留数据 |
+
+Windows 包根目录只保留这三个操作入口；底层命令行入口收在 `bin` 文件夹内，不需要手动打开，但请勿移动或删除。
+
+关闭浏览器或启动窗口**不会停止代理**；电脑重启后需要再次双击启动，没有开机自启。密码仅在首次生成时显示，不会写入后台日志。
+
+这些双击入口从 **1.2.0** 开始随 Windows 便携包提供；公开下载是否已包含它们以 Release 附件为准，旧包可参照其自带的便携部署文档。解压目录内可双击阅读 [开始使用.txt](开始使用.txt)（[English](START_HERE.txt)）。需要命令行操作时见 [便携部署文档](PORTABLE_ZH.md#windows-命令行进阶)。
 
 便携版把订阅、密钥、会话和端口池保存在解压目录的 `data` 文件夹中。更新前先停止服务并备份该目录，不要用新包覆盖它。详细说明见 [便携部署文档](PORTABLE_ZH.md)。
 
@@ -98,7 +105,7 @@
 
 默认管理地址同样为 `http://127.0.0.1:4173`。首次启动即使使用后台模式，管理密码也只在当前终端显示一次，请立即保存。
 
-### Docker Compose
+### Docker Compose（进阶部署）
 
 #### 1. 准备环境
 
@@ -222,6 +229,8 @@ Compose 默认发布 `17891-17893` 和 `17900-17999`。如果启动时报端口�
 
 ## 常用命令
 
+以下命令适用于 **Docker / 源码部署**，Windows 便携用户日常使用上面的三个双击入口即可。
+
 ```bash
 # 查看状态
 docker compose ps
@@ -278,6 +287,13 @@ docker compose up -d --force-recreate proxy-port-manager
 ## 常见问题
 
 <details>
+<summary><strong>Windows 双击启动失败，或找不到启动文件</strong></summary>
+
+确认下载的是包含双击入口的 Windows 便携 ZIP，而不是 `Source code` 或旧版本；完整解压后应有 `runtime`、`core`、`app` 和 `bin/ppm.cmd`。不要同时运行 Docker 版或另一份便携版，以免端口冲突。窗口会保留错误信息，详细日志在 `data/logs/application.log` 和 `data/logs/mihomo.log`；更多排查见 [便携部署](PORTABLE_ZH.md#windows-启动排查)。
+
+</details>
+
+<details>
 <summary><strong>代理端口可以连接，但出口没有变化</strong></summary>
 
 轮询针对新连接。关闭连接复用，或使用多个独立 `curl` 进程测试；同时确认至少两个节点通过健康检查。
@@ -287,7 +303,7 @@ docker compose up -d --force-recreate proxy-port-manager
 <details>
 <summary><strong>端口没有监听</strong></summary>
 
-运行 `docker compose ps` 和 `docker compose logs mihomo-core`。确认端口位于已发布范围，并且没有被其他程序占用。
+Docker 用户运行 `docker compose ps` 和 `docker compose logs mihomo-core`，确认端口位于已发布范围且未被占用。Windows 便携用户先双击“启动管理器.cmd”确认启动成功，再查看 `data/logs/mihomo.log` 和页面中的端口配置；详见 [便携排查](PORTABLE_ZH.md#windows-启动排查)。
 
 </details>
 

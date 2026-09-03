@@ -30,7 +30,7 @@ Docker 和便携版默认持久化。更改管理账号、密码哈希或 `AUTH_
 
 ## CLI 快速使用
 
-便携版使用 `./ppm`（Windows 为 `.\ppm.cmd`），源码版也可用 `node scripts/launcher.mjs`。
+便携版使用 `./ppm`（Windows 在解压根目录运行 `.\bin\ppm.cmd`），源码版也可用 `node scripts/launcher.mjs`。Windows 旧脚本需改用 `bin` 下的新入口路径；根目录不再保留旧入口。
 自动化命令仅连接服务，不会启动服务、创建便携配置或改变现有 `.env`。
 
 将密钥写入仅自己可读的文件，通过进程环境指定其路径；不要写进 Git、命令行参数或 CI 日志。
@@ -41,14 +41,14 @@ Docker 和便携版默认持久化。更改管理账号、密码哈希或 `AUTH_
 $env:PPM_API_URL = 'http://127.0.0.1:4173'
 $env:PPM_API_TOKEN_FILE = 'C:\private\ppm-api-secret.txt'
 $env:PPM_BACKUP_PASSWORD_FILE = 'C:\private\ppm-backup-password.txt'
-.\ppm.cmd doctor
-.\ppm.cmd ports list
-.\ppm.cmd subscriptions refresh --all
-.\ppm.cmd subscriptions refresh '<subscription-id>'
-.\ppm.cmd backup 'backup-2026-09-02.json'
-.\ppm.cmd restore 'backup-2026-09-02.json' --plan 'restore-plan.json'
+.\bin\ppm.cmd doctor
+.\bin\ppm.cmd ports list
+.\bin\ppm.cmd subscriptions refresh --all
+.\bin\ppm.cmd subscriptions refresh '<subscription-id>'
+.\bin\ppm.cmd backup 'backup-2026-09-02.json'
+.\bin\ppm.cmd restore 'backup-2026-09-02.json' --plan 'restore-plan.json'
 # 审阅计划的 changes、missingNodes、unavailableNodes 和 errors 后再执行：
-.\ppm.cmd restore 'backup-2026-09-02.json' --apply --plan 'restore-plan.json'
+.\bin\ppm.cmd restore 'backup-2026-09-02.json' --apply --plan 'restore-plan.json'
 ```
 
 Linux/macOS 通过 `export PPM_API_TOKEN_FILE=/private/ppm-api-secret.txt` 等设置相同变量。

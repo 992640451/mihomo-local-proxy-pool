@@ -2,34 +2,53 @@
 
 [简体中文](PORTABLE_ZH.md) · English
 
-The portable distribution runs Proxy Port Manager as a local background service
+The portable distribution runs Proxy Port Manager as a local service
 and opens its existing web interface in the default browser. It does not require
 Docker, Git, or a system-wide Node.js installation.
 
-## Windows
+## Windows double-click setup (recommended)
 
-Extract the archive into a writable directory and run:
+1. Download a Windows portable ZIP from [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases): choose an asset containing `windows-x64.zip` for an x64 PC or `windows-arm64.zip` for ARM. Do not choose `Source code`.
+2. Right-click → **Extract All** into a writable folder, keeping the whole folder together. Do not run from inside the ZIP or move individual `.cmd` files to the desktop; create a shortcut instead.
+3. Double-click **`启动管理器.cmd` (Start Manager)**. On first start, save `管理账号` (username) and `管理密码` (password). The password appears only when generated; it is not stored in plaintext or background logs.
+4. Your default browser opens when the manager and bundled Mihomo are ready. The default URL is `http://127.0.0.1:4173`; use the URL printed in the window. After saving the password, press any key to close that window. The service keeps running in the background.
+
+Double-clicking Start Manager again checks the existing instance and reopens its page if healthy. **`打开管理页面.cmd` (Open Dashboard)** only opens a running instance. **`停止管理器.cmd` (Stop Manager)** stops the manager and bundled Mihomo, preserving `data`. Closing the browser or startup window does not stop the service. There is no auto-start; start manually after rebooting the PC.
+
+These Chinese-named launchers ship with Windows bundles starting at **1.2.0**; public availability depends on Release assets. For older bundles without them, follow the included command-line guide. Double-click [START_HERE.txt](START_HERE.txt) ([简体中文](开始使用.txt)) in the bundle for a short guide.
+
+See [README: First use](README_EN.md#first-use) for subscription import, port creation and app configuration. Dashboard port `4173` is not a proxy port; the app does not change system proxy settings.
+
+## Windows command line (advanced)
+
+The command line is only needed for scripts or foreground debugging. Open PowerShell in the extracted folder:
 
 ```powershell
-.\ppm.cmd start
-```
+# Foreground: keep the window open; press Ctrl+C to stop
+.\bin\ppm.cmd start
 
-The first start prints a generated administrator password. Save it immediately.
-The browser opens `http://127.0.0.1:4173` after both the management service and
-the bundled Mihomo core are healthy.
-
-To keep the service running without an open terminal:
-
-```powershell
-.\ppm.cmd start --background
-.\ppm.cmd status
-.\ppm.cmd open
-.\ppm.cmd stop
+# Or run in the background, as the double-click launcher does
+.\bin\ppm.cmd start --background
+.\bin\ppm.cmd status
+.\bin\ppm.cmd open
+.\bin\ppm.cmd stop
 ```
 
 For headless operation, add `--no-open`. Even if the first start uses `--background`,
 the generated password is shown once in the current terminal, not the background
 application log. Save it immediately.
+
+The Windows CLI has moved to `bin/ppm.cmd`; the root no longer contains the old entry point or the Linux/macOS `ppm` script. Update existing scripts and CLI shortcuts to the new path shown above. `.\` means "in the current directory". Everyday users only need the three Chinese-named launchers. Running `start --background` again reopens a healthy instance instead of failing with a duplicate-start error. `data` stays at the extraction root, not inside `bin`; do not move or delete `bin`.
+
+## Windows startup troubleshooting
+
+- **Missing launcher or Node.js not found**: ensure this is not `Source code` or an older bundle. Extract everything, including `runtime/node.exe`, `core/mihomo.exe`, `app` and `bin/ppm.cmd`. No separate Node.js installation is needed.
+- **Cannot run or blocked file**: check x64 / arm64 compatibility, official source and [release checksums](RELEASING_EN.md#verify-downloads-and-deploy-images). Check for security-software quarantine; do not simply disable protection or run untrusted copies.
+- **Startup failure / occupied ports**: keep the window's error and inspect `data/logs/application.log` and `data/logs/mihomo.log`. Do not run Docker, old bundles or another copy on the same ports. Default management port `4173` and controller port `19090` must be available.
+- **Existing process is unhealthy**: double-click Stop Manager and confirm success before restarting; do not delete lock files to force a second instance.
+- **No browser opens**: visit the printed URL or use Open Dashboard; if stopped, start the manager first.
+- **First startup fails after printing credentials**: save the password before troubleshooting. Configuration may already exist, so the password will not be shown again. Do not delete `data/config.env` to reinitialize; it also contains keys required to decrypt subscriptions.
+- **Forgotten administrator password**: the portable launcher does not currently offer a password-reset command. Do not reuse Docker initialization commands. Stop the service, privately back up `data`, and ask the maintainers through [project Issues](https://github.com/992640451/mihomo-local-proxy-pool/issues) for recovery that preserves encryption keys. Share only the version and redacted errors, never `data`, configuration, passwords or subscription links.
 
 ## Linux and macOS
 
@@ -43,7 +62,7 @@ application log. Save it immediately.
 
 ## Data and updates
 
-Portable data is stored in the `data` directory next to the launcher. Stop the
+Portable data is stored in `data` at the extraction root, not inside `bin`. Stop the
 service before copying that directory to preserve a consistent set of subscriptions,
 encryption keys, login sessions, API tokens, audit events, observations and managed
 ports. Extract updates into a new directory, copy your backed-up `data` into it,

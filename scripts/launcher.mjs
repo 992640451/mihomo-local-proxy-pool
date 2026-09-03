@@ -41,9 +41,11 @@ async function prepareRuntime({ announceCredentials = false, initialize = true }
     await writeRuntimeEnv(paths.configFile, generated.content)
     if (announceCredentials) {
       console.log(`已生成便携配置：${paths.configFile}`)
+      console.log('首次启动 / First start: 请保存以下登录信息 / Save these login credentials.')
       console.log(`管理账号：${generated.username}`)
       console.log(`管理密码：${generated.password}`)
-      console.log('请立即保存密码；配置文件只保存不可逆的 Scrypt 哈希。')
+      console.log('密码只显示这一次，不会写入日志；配置文件只保存不可逆的 Scrypt 哈希。')
+      console.log('Password shown once, not saved in logs. The configuration stores only a Scrypt hash.')
     }
   }
   await loadRuntimeEnv(paths.configFile)
@@ -74,6 +76,7 @@ function openBrowser(url) {
   const command = process.platform === 'win32' ? 'rundll32.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open'
   const args = process.platform === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url]
   const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true })
+  child.once('error', () => console.warn(`无法自动打开浏览器，请手动访问 / Open manually: ${url}`))
   child.unref()
 }
 
@@ -164,9 +167,12 @@ async function serve({ shouldOpen = true } = {}) {
   }
 }
 
-async function waitForBackground(paths, timeoutMs = 20000) {
+async function waitForBackground(paths, child, timeoutMs = 20000) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < timeoutMs) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`后台进程启动失败，请查看 / Check logs: ${paths.appLog}, ${paths.coreLog}`)
+    }
     const state = await readJson(paths.runtimeState)
     if (state && processAlive(Number(state.pid))) {
       try {
@@ -176,24 +182,41 @@ async function waitForBackground(paths, timeoutMs = 20000) {
     }
     await delay(250)
   }
-  throw new Error('后台服务未能在预期时间内启动，请查看 application.log 和 mihomo.log')
+  throw new Error(`后台服务启动超时，请查看 / Startup timed out; check logs: ${paths.appLog}, ${paths.coreLog}`)
 }
 
 async function startBackground({ shouldOpen = true } = {}) {
   const { paths } = await prepareRuntime({ announceCredentials: true })
   const current = await readJson(paths.runtimeState)
-  if (current && processAlive(Number(current.pid))) throw new Error(`服务已在运行：${current.managementUrl}`)
+  if (current && processAlive(Number(current.pid))) {
+    try {
+      const control = await fetch(`${current.controlUrl}/status`, {
+        headers: { Authorization: `Bearer ${current.controlToken}` },
+        signal: AbortSignal.timeout(1500),
+      })
+      if (!control.ok || (await control.json()).pid !== current.pid) throw new Error('control check failed')
+      const health = await fetch(`${current.managementUrl}/healthz`, { signal: AbortSignal.timeout(1500) })
+      if (!health.ok) throw new Error(`HTTP ${health.status}`)
+    } catch {
+      throw new Error('已有进程但健康检查失败，请先停止管理器再重试。 / Existing process is unhealthy; stop it before retrying.')
+    }
+    console.log(`服务已在后台运行 / Already running: ${current.managementUrl}`)
+    if (shouldOpen) openBrowser(current.managementUrl)
+    return
+  }
   const logFd = openSync(paths.appLog, 'a')
+  let child
   try {
-    const child = spawn(process.execPath, [entryFile, '_serve', '--no-open'], {
+    child = spawn(process.execPath, [entryFile, '_serve', '--no-open'], {
       detached: true,
       windowsHide: true,
       stdio: ['ignore', logFd, logFd],
       env: process.env,
     })
+    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject) })
     child.unref()
   } finally { closeSync(logFd) }
-  const state = await waitForBackground(paths)
+  const state = await waitForBackground(paths, child)
   console.log(`Proxy Port Manager 已在后台启动：${state.managementUrl}`)
   if (shouldOpen) openBrowser(state.managementUrl)
 }
@@ -223,6 +246,7 @@ async function showStatus({ open = false } = {}) {
   const state = await readJson(paths.runtimeState)
   if (!state || !processAlive(Number(state.pid))) {
     console.log('状态：未运行')
+    if (open) console.log('请先双击“启动管理器.cmd”，或运行 ppm start --background。 / Start the manager first.')
     process.exitCode = 1
     return
   }
@@ -253,7 +277,7 @@ async function main() {
   if (command === 'stop') return stopBackground()
   if (command === 'restart') { await stopBackground(); return args.includes('--background') ? startBackground(options) : serve(options) }
   if (command === 'status') return showStatus()
-  if (command === 'open') return showStatus({ open: true })
+  if (command === 'open') return showStatus({ open: options.shouldOpen })
   if (command === '--help' || command === '-h' || command === 'help') return usage()
   throw new Error(`未知命令：${command}`)
 }

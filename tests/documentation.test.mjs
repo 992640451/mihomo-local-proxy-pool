@@ -82,6 +82,26 @@ test('双语自动化指南列出的接口与实际 API 合同一致', async () 
   }
 })
 
+test('双语新手入口说明包含相同启动文件、安全提示和阅读入口', async () => {
+  for (const file of ['开始使用.txt', 'START_HERE.txt']) {
+    const content = await read(file)
+    for (const required of ['启动管理器.cmd', '打开管理页面.cmd', '停止管理器.cmd', '1.2.0', 'Source code', '4173', 'data', 'config.env']) {
+      assert.ok(content.includes(required), `${file} missing ${required}`)
+    }
+    for (const index of ['README.md', 'README_EN.md']) assert.ok(links(await read(index)).includes(file))
+  }
+})
+
+test('Windows 高级命令使用内部入口，文档没有遗留根目录调用', async () => {
+  await read('bin/ppm.cmd')
+  for (const file of [...DOCUMENTATION_PAIRS.flat(), '开始使用.txt', 'START_HERE.txt']) {
+    assert.ok(!(await read(file)).includes('.\\ppm.cmd'), `${file} still uses the old Windows entry point`)
+  }
+  for (const file of ['PORTABLE_ZH.md', 'PORTABLE.md', 'AUTOMATION.md', 'AUTOMATION_EN.md']) {
+    assert.ok((await read(file)).includes('.\\bin\\ppm.cmd'), `${file} missing internal CLI path`)
+  }
+})
+
 test('便携文档复制保留全部双语指南、许可证与图片，不包含运行数据', async t => {
   const destination = await mkdtemp(path.join(os.tmpdir(), 'ppm-docs-test-'))
   t.after(() => rm(destination, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))

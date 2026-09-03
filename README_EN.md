@@ -52,6 +52,7 @@ This branch is version **1.2.0**. Available public bundles and images are listed
 - **Script automation**: `/api/v1`, OpenAPI, revocable scoped tokens, and `ppm doctor / backup / restore / ports list / subscriptions refresh`.
 - **Restore planning**: review subscription, node, and port additions, changes, and deletions before explicitly applying a signed plan. Plans expire after 10 minutes and must be regenerated if configuration changes.
 - **Reliability fixes**: subscription changes commit only after Mihomo confirms reload, with rollback on failure; improved YAML-error and historical-audit redaction and scheduler diagnostics.
+- **Double-click on Windows**: fully extract the bundle, then use `启动管理器.cmd` to start in the background and open the dashboard, with separate open/stop launchers and bilingual getting-started notes.
 
 See [Observability](OBSERVABILITY_EN.md), [Automation API and CLI](AUTOMATION_EN.md), and the [full changelog](CHANGELOG_EN.md).
 
@@ -62,27 +63,33 @@ See [Observability](OBSERVABILITY_EN.md), [Automation API and CLI](AUTOMATION_EN
 
 Proxy Port Manager supports two local deployment modes:
 
-- **Docker Compose** for development machines, NAS devices, and long-running hosts.
-- **Portable server bundles** for Windows, Linux, and macOS. They include Node.js and Mihomo, open the existing web UI in a browser, and do not require Docker or Git.
+- **Portable server bundles (recommended for beginners)** for Windows, Linux, and macOS. They include Node.js and Mihomo, open the existing web UI in a browser, and do not require Docker or Git.
+- **Docker Compose (advanced deployment)** for development machines, NAS devices, and long-running hosts.
 
-### Windows portable deployment
+### Windows: download, extract, double-click (recommended)
 
-Download the portable ZIP for your architecture (x64 or arm64) from [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases), extract it into a writable directory, then run:
+1. Open [Releases](https://github.com/992640451/mihomo-local-proxy-pool/releases) and download the portable asset whose name contains `windows-x64.zip`; choose `windows-arm64.zip` for an ARM PC. **Do not download `Source code`.**
+2. Right-click the ZIP → **Extract All** into your own writable folder. Do not run from inside the ZIP or move individual launcher files.
+3. Double-click **`启动管理器.cmd` (Start Manager)** and wait. On first start, save `管理账号` (username) and `管理密码` (password) in your password manager.
+4. Your browser opens the dashboard. Sign in with those credentials. After saving the password, press any key to close the startup window; the service keeps running in the background.
 
-```powershell
-.\ppm.cmd start
-```
+The default dashboard URL is [http://127.0.0.1:4173](http://127.0.0.1:4173). If the browser does not open, visit the URL printed in the startup window.
 
-The first start prints a generated administrator password and opens your browser after Mihomo and the management service are ready. Save the password. To manage a background instance:
+Only three files are needed for everyday use (their filenames are Chinese):
 
-```powershell
-.\ppm.cmd start --background
-.\ppm.cmd status
-.\ppm.cmd open
-.\ppm.cmd stop
-```
+| File | Double-click behavior |
+| --- | --- |
+| `启动管理器.cmd` — Start Manager | Start in the background and open the page, or reopen it if already healthy |
+| `打开管理页面.cmd` — Open Dashboard | Open the running manager; prompt to start first if stopped |
+| `停止管理器.cmd` — Stop Manager | Stop the manager and bundled Mihomo, keeping your data |
 
-Portable state is stored in the `data` directory beside the launcher. Stop the service and back up that directory before upgrading; do not overwrite it with the new bundle. See [Portable deployment](PORTABLE.md).
+These are the only operation launchers at the Windows bundle root. The underlying CLI is kept in `bin`; you do not need to open it manually, but do not move or delete it.
+
+Closing the browser or startup window **does not stop the proxy**. Start again after rebooting the PC; there is no auto-start. The password is printed only when first generated, never in background logs.
+
+These launchers ship with Windows bundles starting at **1.2.0**; check the actual Release assets for availability. For older bundles, follow their included portable guide. Double-click [START_HERE.txt](START_HERE.txt) ([简体中文](开始使用.txt)) in the extracted folder for a short guide. Command-line use is optional; see [advanced portable commands](PORTABLE.md#windows-command-line-advanced).
+
+Portable state is stored in `data` at the extraction root, not inside `bin`. Stop the service and back up that directory before upgrading; do not overwrite it with the new bundle. See [Portable deployment](PORTABLE.md).
 
 ### Linux / macOS portable deployment
 
@@ -98,7 +105,7 @@ Download the `.tar.gz` for your system and architecture (x64 or arm64), extract 
 
 The default management URL is also `http://127.0.0.1:4173`. Even in background mode, the generated password is shown only once in the current terminal on first start. Save it immediately.
 
-### Docker Compose
+### Docker Compose (advanced deployment)
 
 #### 1. Requirements
 
@@ -222,6 +229,8 @@ Compose publishes `17891-17893` and `17900-17999` by default. If startup reports
 
 ## Common commands
 
+These commands are for **Docker / source deployments**. Windows portable users can use the three double-click launchers above for everyday operations.
+
 ```bash
 # Status
 docker compose ps
@@ -278,6 +287,13 @@ New installations do not depend on Clash Verge. To import existing Clash Verge r
 ## FAQ
 
 <details>
+<summary><strong>Windows double-click startup fails, or launcher files are missing</strong></summary>
+
+Download a Windows portable ZIP containing the new launchers, not `Source code` or an older bundle. Extract everything; the folder must include `runtime`, `core`, `app` and `bin/ppm.cmd`. Avoid running Docker and portable instances, or multiple portable copies, on the same ports. The window keeps errors visible; detailed logs are in `data/logs/application.log` and `data/logs/mihomo.log`. See [portable troubleshooting](PORTABLE.md#windows-startup-troubleshooting).
+
+</details>
+
+<details>
 <summary><strong>The proxy connects, but the exit does not change</strong></summary>
 
 Round robin operates on new connections. Disable connection reuse or run separate `curl` processes, and confirm that at least two nodes pass health checks.
@@ -287,7 +303,7 @@ Round robin operates on new connections. Disable connection reuse or run separat
 <details>
 <summary><strong>The port is not listening</strong></summary>
 
-Run `docker compose ps` and `docker compose logs mihomo-core`. Confirm that the port is inside the published range and is not already used by another program.
+For Docker, run `docker compose ps` and `docker compose logs mihomo-core`; confirm the port is published and unoccupied. For Windows portable bundles, first double-click Start Manager and confirm startup succeeds, then check `data/logs/mihomo.log` and the dashboard's port configuration. See [portable troubleshooting](PORTABLE.md#windows-startup-troubleshooting).
 
 </details>
 

@@ -73,6 +73,8 @@ The source tag's core manifest defines the target matrix. Do not claim support f
 
 Archives contain `sbom.cdx.json` and `app/build-info.json`. Tests extract the final archive, compare internal files with sidecars, then use bundled Node/Mihomo to verify first initialization, web pages, authentication, core health, stop and restart. They use isolated temporary data/ports without importing real subscriptions or sending public proxy probes and clean up afterward.
 
+Windows 1.2.0 bundles also include three Chinese-named double-click launchers and `开始使用.txt` / `START_HERE.txt`. The internal entry is `bin/ppm.cmd`; the Windows root must not contain `ppm.cmd` or Unix `ppm`. Linux/macOS bundles keep root-level `ppm`. Windows archive tests rename the install folder to include Chinese, spaces and special characters, then use real `cmd.exe` to verify first-start credentials, background operation, repeated starts, the open entry, stop and restart. Automated tests pass `--no-open` to avoid opening browsers; manually confirm default-browser opening before publication.
+
 Container tags are `ghcr.io/<owner>/<repository>:vX.Y.Z` and `:sha-<full-source-SHA>`, with `linux/amd64` and `linux/arm64`, BuildKit SBOM/provenance and OCI version labels. This image is the management service; Mihomo remains a separate Compose service. Temporary containers first verify each architecture's web page, login, build info and lifecycle. The final combined image uses the same source, lockfile and build time.
 
 The workflow rejects existing version/SHA image tags. GHCR tags themselves are not immutable storage: pin deployments to the Release's `image@sha256:…`. No moving `latest` image tag is created.

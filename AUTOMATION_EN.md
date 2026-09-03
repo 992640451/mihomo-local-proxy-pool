@@ -23,7 +23,7 @@ Revocation blocks subsequent requests, not operations already authorized. Last-u
 
 ## CLI quick start
 
-Use `./ppm` in a portable bundle (`.\ppm.cmd` on Windows), or `node scripts/launcher.mjs` from source. Automation commands only connect to a running service: they do not start it, initialize portable configuration, or modify `.env`.
+Use `./ppm` in a portable bundle (on Windows, run `.\bin\ppm.cmd` from the extraction root), or `node scripts/launcher.mjs` from source. Update older Windows scripts to the entry point under `bin`; the old root entry point is no longer provided. Automation commands only connect to a running service: they do not start it, initialize portable configuration, or modify `.env`.
 
 Store secrets in files readable only by you and set their paths in the process environment. Do not put secrets in Git, command arguments, or CI logs. `PPM_API_TOKEN` and `PPM_BACKUP_PASSWORD` environment variables are also supported; use protected CI secrets for injection. Files take precedence, and reading removes only one trailing newline. New backup/plan files use Unix mode `0600`; restrict directory ACLs on Windows too.
 
@@ -31,14 +31,14 @@ Store secrets in files readable only by you and set their paths in the process e
 $env:PPM_API_URL = 'http://127.0.0.1:4173'
 $env:PPM_API_TOKEN_FILE = 'C:\private\ppm-api-secret.txt'
 $env:PPM_BACKUP_PASSWORD_FILE = 'C:\private\ppm-backup-password.txt'
-.\ppm.cmd doctor
-.\ppm.cmd ports list
-.\ppm.cmd subscriptions refresh --all
-.\ppm.cmd subscriptions refresh '<subscription-id>'
-.\ppm.cmd backup 'backup-2026-09-02.json'
-.\ppm.cmd restore 'backup-2026-09-02.json' --plan 'restore-plan.json'
+.\bin\ppm.cmd doctor
+.\bin\ppm.cmd ports list
+.\bin\ppm.cmd subscriptions refresh --all
+.\bin\ppm.cmd subscriptions refresh '<subscription-id>'
+.\bin\ppm.cmd backup 'backup-2026-09-02.json'
+.\bin\ppm.cmd restore 'backup-2026-09-02.json' --plan 'restore-plan.json'
 # Review changes, missingNodes, unavailableNodes, and errors before applying:
-.\ppm.cmd restore 'backup-2026-09-02.json' --apply --plan 'restore-plan.json'
+.\bin\ppm.cmd restore 'backup-2026-09-02.json' --apply --plan 'restore-plan.json'
 ```
 
 On Linux/macOS, set the same variables using `export PPM_API_TOKEN_FILE=/private/ppm-api-secret.txt`, and so on. All commands accept `--url` to override `PPM_API_URL`, whose default is `http://127.0.0.1:4173`; the source development API normally uses port 4180.

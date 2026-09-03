@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { fetchMihomo } from './fetch-mihomo.mjs'
 import { tarCommand } from './archive-tools.mjs'
 import { copyDocumentation } from './documentation-files.mjs'
+import { copyPortableLaunchers } from './portable-launchers.mjs'
 import { buildMetadata, capture, executableComponent, extendSbom, writeJson } from './build-metadata.mjs'
 
 const scriptRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -67,9 +68,7 @@ async function main() {
   const appFiles = ['server', 'shared', 'scripts', 'dist', 'package.json', 'package-lock.json']
   for (const value of appFiles) await cp(path.join(projectRoot, value), path.join(stage, 'app', value), { recursive: true })
   await copyDocumentation(projectRoot, stage)
-  for (const value of ['ppm.cmd', 'ppm']) {
-    await cp(path.join(projectRoot, value), path.join(stage, value))
-  }
+  await copyPortableLaunchers(projectRoot, stage)
   const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
   const coreName = process.platform === 'win32' ? 'mihomo.exe' : 'mihomo'
   await cp(process.execPath, path.join(stage, 'runtime', nodeName))

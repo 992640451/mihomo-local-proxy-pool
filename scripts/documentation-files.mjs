@@ -19,6 +19,8 @@ export const DOCUMENTATION_PAIRS = [
 // An explicit allowlist excludes local QA notes, user data and credentials.
 export const DOCUMENTATION_FILES = [
   ...DOCUMENTATION_PAIRS.flat(),
+  '开始使用.txt',
+  'START_HERE.txt',
   'LICENSE',
   'assets/readme-hero.png',
 ]

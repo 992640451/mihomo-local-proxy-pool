@@ -73,6 +73,8 @@ gh workflow run release.yml --repo 992640451/mihomo-local-proxy-pool --ref main 
 
 归档内部也有 `sbom.cdx.json` 和 `app/build-info.json`。测试解压最终归档，确认内部文件与 sidecar 一致，然后使用内置 Node/Mihomo 完成首次初始化、Web 页面、认证、核心健康、停止及再次启动。测试不导入真实订阅、不对公网发代理探测；使用独立临时目录和端口，结束后清理。
 
+1.2.0 Windows 包还包含三个中文双击入口及 `开始使用.txt` / `START_HERE.txt`。底层入口为 `bin/ppm.cmd`，Windows 包根目录不得含 `ppm.cmd` 或 Unix `ppm`；Linux/macOS 包保留根目录 `ppm`。Windows 归档测试将安装目录改为含中文、空格及特殊字符的路径，通过真实 `cmd.exe` 验证双击入口的首次密码、后台运行、重复启动、打开入口、停止与重启，自动化测试使用 `--no-open` 避免打开浏览器。发布前还应人工确认默认浏览器能正常打开。
+
 容器发布到 `ghcr.io/<owner>/<repository>:vX.Y.Z` 和 `:sha-<完整源码SHA>`，包含 `linux/amd64` 与 `linux/arm64`、BuildKit SBOM、provenance 和 OCI 版本标签。镜像是管理服务，Mihomo 仍是 Compose 的独立服务。两架构均先以临时容器完成页面、登录、构建信息、停止和重启测试。最终组合镜像复用同一源码、锁文件与构建时间构建。
 
 工作流拒绝覆盖已存在的版本和 SHA 镜像标签；GHCR 标签本身并非不可变存储，严格固定部署请使用 Release 中的 `image@sha256:…`。不生成移动的 `latest` 镜像标签。

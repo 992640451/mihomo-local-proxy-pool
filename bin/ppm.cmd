@@ -1,6 +1,6 @@
 @echo off
-setlocal
-set "PPM_ROOT=%~dp0"
+setlocal DisableDelayedExpansion
+for %%I in ("%~dp0..") do set "PPM_ROOT=%%~fI\"
 set "PPM_PORTABLE=1"
 set "PPM_NODE=%PPM_ROOT%runtime\node.exe"
 set "PPM_ENTRY=%PPM_ROOT%app\scripts\launcher.mjs"

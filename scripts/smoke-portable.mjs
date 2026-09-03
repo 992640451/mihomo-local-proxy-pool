@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises'
 import { once } from 'node:events'
 import net from 'node:net'
 import os from 'node:os'
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { capture } from './build-metadata.mjs'
 import { argument } from './release-utils.mjs'
 import { tarCommand } from './archive-tools.mjs'
+import { smokeWindowsLaunchers } from './smoke-windows-launchers.mjs'
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -40,6 +41,11 @@ export async function smokePortable(archiveFile, { expectedVersion, expectedRevi
     root = path.join(temporary, folders[0].name)
     assert.equal(folders[0].isDirectory(), true)
     assert.equal((await readdir(root)).includes('data'), false, '发布包不得含有用户数据')
+    if (process.platform === 'win32') {
+      const renamed = path.join(temporary, '中文 & portable (test)!')
+      await rename(root, renamed)
+      root = renamed
+    }
     node = path.join(root, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node')
     entry = path.join(root, 'app', 'scripts', 'launcher.mjs')
     const manifest = JSON.parse(await readFile(path.join(root, 'app', 'package.json'), 'utf8'))
@@ -98,7 +104,8 @@ export async function smokePortable(archiveFile, { expectedVersion, expectedRevi
       assert.equal((await readdir(path.join(root, 'data', 'runtime'))).includes('service.lock'), false)
       child = null
     }
-    return { version: manifest.version, restarted: true }
+    const windowsLaunchers = process.platform === 'win32' ? await smokeWindowsLaunchers(root, env) : { tested: false }
+    return { version: manifest.version, restarted: true, windowsLaunchers }
   } finally {
     if (child && child.exitCode === null) {
       // Best effort cooperative cleanup; only kill this test's own process tree.

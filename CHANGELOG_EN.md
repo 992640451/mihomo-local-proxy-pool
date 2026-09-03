@@ -24,6 +24,8 @@ Public versions follow semantic versioning. This file records user-facing behavi
 
 ### Improved
 
+- Windows portable bundles add double-click Start Manager / Open Dashboard / Stop Manager launchers and bilingual getting-started notes. Windows retain first-start credentials and errors; repeated background starts reuse a healthy instance, and startup failures point to log paths.
+- The Windows CLI moves to `bin/ppm.cmd`; the root no longer ships the old entry point or Unix script. Update existing automation paths; data location is unchanged. Linux/macOS continue using `./ppm`.
 - Release is manual-only. New version-tag pushes no longer trigger duplicate draft builds; Draft remains the default and public release requires explicit confirmation.
 - Updated both READMEs and completed Chinese/English deployment, observability, automation, release, contribution, security, architecture, changelog and third-party guides with navigation.
 - Portable bundles include all bilingual guides, the license and README image; regression checks cover documentation links, version consistency and API listings.
