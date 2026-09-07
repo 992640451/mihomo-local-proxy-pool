@@ -1,6 +1,7 @@
 // Isolated, synthetic UI fixture. Never reads .env or touches deployed data.
 import http from 'node:http'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
+import YAML from 'yaml'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
@@ -22,13 +23,20 @@ const proxy = http.createServer((_req, res) => {
   res.end(JSON.stringify({ ip: '192.0.2.8', country_code: 'JP', success: true }))
 })
 proxy.listen(0, '127.0.0.1'); await once(proxy, 'listening')
-const port = proxy.address().port
-const ports = { [port]: { port, nodeIds: definitions.slice(0, 2).map(node => node.id), strategy: 'fallback', protocol: 'HTTP', enabled: true } }
+const sessionPreview = process.argv.includes('--sessions')
+const port = sessionPreview ? 17900 : proxy.address().port
+const ports = { [port]: { port, nodeIds: definitions.slice(0, 2).map(node => node.id), strategy: sessionPreview ? 'session-round-robin' : 'fallback', protocol: 'HTTP', enabled: true } }
 await writeFile(path.join(directory, 'state.json'), JSON.stringify({ version: 2, ports }))
 const states = Object.fromEntries(definitions.map((node, index) => [`ppm-node-${node.id}`, { alive: index !== 1, history: index === 2 ? [] : [{ time: new Date().toISOString(), delay: index ? 0 : 42 }] }]))
-const controller = http.createServer((req, res) => {
+let groups = {}
+const controller = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json')
-  if (req.url.startsWith('/configs')) return res.end('{}')
+  if (req.url.startsWith('/configs')) {
+    const config = YAML.parse(await readFile(path.join(directory, 'config.yaml'), 'utf8'))
+    groups = Object.fromEntries(config['proxy-groups'].map(group => [group.name, { now: group.proxies[0], all: group.proxies }]))
+    return res.end('{}')
+  }
+  if (req.url === '/connections') return res.end(JSON.stringify({ connections: null }))
   if (req.url === '/version') return res.end(JSON.stringify({ version: 'synthetic', meta: true }))
   if (req.url === '/proxies') return res.end(JSON.stringify({ proxies: { ...states, [`PPM-${port}`]: { now: `ppm-node-${definitions[0].id}` } } }))
   if (req.url.includes('/delay?')) {
@@ -36,6 +44,7 @@ const controller = http.createServer((req, res) => {
     states[name] = { alive: true, history: [{ time: new Date().toISOString(), delay: 38 }] }
     return setTimeout(() => res.end(JSON.stringify({ delay: 38 })), 150)
   }
+  if (req.url.startsWith('/proxies/')) return res.end(JSON.stringify(groups[decodeURIComponent(req.url.split('/')[2])] || {}))
   res.statusCode = 404; res.end('{}')
 })
 controller.listen(0, '127.0.0.1'); await once(controller, 'listening')

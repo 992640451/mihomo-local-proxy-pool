@@ -1,0 +1,15 @@
+{
+  "port": 17900,
+  "profileId": "chrome-profile-17900",
+  "browser": {
+    "type": "command",
+    "lifecycle": "process",
+    "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "args": [
+      "--user-data-dir=C:\\BrowserProfiles\\ppm-17900",
+      "--proxy-server=http://127.0.0.1:17900",
+      "--disable-background-mode",
+      "--no-first-run"
+    ]
+  }
+}

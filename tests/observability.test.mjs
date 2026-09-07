@@ -208,3 +208,19 @@ test('controller requests only named nodes, times out, and does not expose respo
   await assert.rejects(() => controller.delay('id', { timeoutMs: 1500 }), /有效延迟/)
   await assert.rejects(() => new ObservationController({ url: '' }).proxies(), error => error.status === 501)
 })
+
+test('scheduled probes never activate or sample session ports; manual verification requires an active session', async t => {
+  let now = Date.now(), portProbes = 0
+  const { service, catalog } = fixture(t, { clock: () => now, verifyPool: async () => { portProbes++; return { attempts: 2, successes: 2, failures: 0, samples: [], distribution: [] } } })
+  catalog.listeners[0].strategy = 'session-round-robin'
+  await assert.rejects(() => service.verifyPort(17900, 2), { code: 'PROXY_SESSION_NOT_ACTIVE' })
+  service.settings({ enabled: true, intervalSeconds: 300 }); now += 300000
+  await service.tick(); await service.pending
+  assert.equal(portProbes, 0)
+  catalog.listeners[0].proxySession = { state: 'active' }; now += 300000
+  await service.tick(); await service.pending
+  assert.equal(portProbes, 0)
+  now += 30000
+  await service.verifyPort(17900, 2)
+  assert.equal(portProbes, 1)
+})

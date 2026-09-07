@@ -3,6 +3,8 @@ import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promis
 import path from 'node:path'
 import YAML from 'yaml'
 import { buildProxyGroup, LISTENER_TYPES, normalizePortConfig, PORT_STRATEGIES, validatePortConfig } from '../shared/portConfig.js'
+import { SESSION_STRATEGY, nodeFingerprint, publicSession, sessionError } from './proxySessionStore.mjs'
+import { beginProxySession, finishProxySession, requireSessionPort, sessionSnapshot } from './proxySessions.mjs'
 
 let mutationQueue = Promise.resolve()
 
@@ -70,6 +72,7 @@ function defaultOptions(options = {}) {
     listenerHost: options.listenerHost || process.env.EMBEDDED_CORE_LISTENER_HOST || '0.0.0.0',
     controllerAddress: options.controllerAddress || process.env.EMBEDDED_CORE_CONTROLLER_ADDRESS || '0.0.0.0:9090',
     definitionProvider: typeof options.definitionProvider === 'function' ? options.definitionProvider : null,
+    proxySessionStore: options.proxySessionStore || null,
   }
 }
 
@@ -153,6 +156,16 @@ function buildConfig(state, definitions, options) {
       return internalName
     })
     const proxyGroup = buildProxyGroup(item, internalNames)
+    if (item.strategy === SESSION_STRATEGY) {
+      const session = options.proxySessionStore?.current(Number(portText))
+      if (session && ['active', 'activating'].includes(session.state)) {
+        const definition = byId.get(session.nodeId)
+        if (!definition || definition.active === false || definition.subscriptionEnabled === false || !item.nodeIds.includes(session.nodeId) || nodeFingerprint(definition.raw) !== session.nodeFingerprint) {
+          throw sessionError(`端口 ${portText} 的会话节点被修改或停用，请先结束使用`)
+        }
+        proxyGroup.proxies = [`ppm-node-${session.nodeId}`]
+      }
+    }
     proxyGroups.push(proxyGroup)
     listeners.push({
       name: `ppm-${portText}`,
@@ -205,6 +218,7 @@ export function isEmbeddedCoreEnabled() {
 
 export async function ensureEmbeddedCore(source, rawOptions = {}) {
   const options = defaultOptions(rawOptions)
+  options.proxySessionStore?.recoverInterrupted()
   const definitions = await resolveDefinitions(source, options)
   const legacyBackupPath = await backupLegacyState(options)
   const existing = await readState(options)
@@ -279,6 +293,7 @@ export function validateEmbeddedCoreState(rawState, availableNodeIds, rawOptions
 export function restoreEmbeddedCoreState(source, rawState, rawOptions = {}) {
   return serializeMutation(async () => {
     const options = defaultOptions(rawOptions)
+    options.proxySessionStore?.assertIdle()
     const definitions = await resolveDefinitions(source, options)
     const availableNodeIds = new Set(definitions.map(item => item.id))
     const nextState = validateEmbeddedCoreState(rawState, availableNodeIds, options)
@@ -316,6 +331,7 @@ export async function embeddedListeners(source, rawOptions = {}) {
       nodeIds: item.nodeIds,
       strategy: item.strategy,
       strategyOptions: item.strategyOptions,
+      ...(item.strategy === SESSION_STRATEGY ? { proxySession: publicSession(options.proxySessionStore?.current(Number(port))) } : {}),
       enabled: item.enabled !== false,
       managedBy: 'embedded-mihomo',
       lastChecked: item.enabled === false ? '配置已停用' : missing ? `节点已不存在：${missing}` : `受管监听 · 首选 ${selected[0]?.raw?.name || '未知'}`,
@@ -334,6 +350,8 @@ async function applyEmbeddedPortMutation({ source, port, nodeId, nodeIds, strate
   })
   const primary = definitions.find(item => item.id === normalized.nodeId)
   const previousState = await readState(options) || emptyState()
+  options.proxySessionStore?.assertIdle(numericPort)
+  if (normalized.strategy === SESSION_STRATEGY && (!options.proxySessionStore || !options.controllerUrl)) throw sessionError('会话轮换需要受管核心、Controller 和持久化会话存储', 'PROXY_SESSION_UNSUPPORTED', 501)
   const previousConfig = await exists(options.configPath) ? await readFile(options.configPath, 'utf8') : null
   const nextState = structuredClone(previousState)
   nextState.version = 2
@@ -359,6 +377,7 @@ async function deleteEmbeddedPortMutation({ source, port, ...rawOptions }) {
   const numericPort = Number(port)
   if (!Number.isInteger(numericPort) || numericPort < 1024 || numericPort > 65535) throw new Error('端口必须是 1024–65535 的整数')
   const options = defaultOptions(rawOptions), previousState = await readState(options) || emptyState()
+  options.proxySessionStore?.assertIdle(numericPort)
   if (!Object.prototype.hasOwnProperty.call(previousState.ports, String(numericPort))) return { port: numericPort, removed: false, embeddedCore: true, reloaded: false, reloadRequired: false }
   const previousConfig = await exists(options.configPath) ? await readFile(options.configPath, 'utf8') : null
   const nextState = structuredClone(previousState); delete nextState.ports[String(numericPort)]
@@ -395,6 +414,45 @@ async function controllerJson(options, pathname) {
   })
   if (!response.ok) throw new Error(`Mihomo Controller 返回 HTTP ${response.status}`)
   return response.json()
+}
+
+async function sessionContext(source, port, rawOptions) {
+  const options = defaultOptions(rawOptions), numericPort = Number(port)
+  if (!Number.isInteger(numericPort) || numericPort < 1024 || numericPort > 65535) throw sessionError('端口无效', 'INVALID_PORT', 400)
+  const state = await readState(options) || emptyState(), item = state.ports[String(numericPort)]
+  requireSessionPort(item, options.proxySessionStore)
+  if (!options.controllerUrl) throw sessionError('Mihomo Controller 未配置', 'PROXY_SESSION_UNSUPPORTED', 501)
+  return { port: numericPort, item, store: options.proxySessionStore, definitions: await resolveDefinitions(source, options),
+    apply: () => persist(source, state, options, true),
+    request: async (pathname, { method = 'GET', timeoutMs = 5000 } = {}) => {
+      const response = await fetch(`${options.controllerUrl.replace(/\/$/, '')}${pathname}`, { method, redirect: 'error',
+        headers: options.controllerSecret ? { Authorization: `Bearer ${options.controllerSecret}` } : {}, signal: AbortSignal.timeout(timeoutMs) })
+      if (!response.ok) { await response.body?.cancel(); throw new Error(`Mihomo Controller HTTP ${response.status}`) }
+      if (response.status === 204) return null
+      return response.json()
+    },
+  }
+}
+
+export function startEmbeddedProxySession(source, port, input, options = {}) {
+  return serializeMutation(async () => beginProxySession(await sessionContext(source, port, options), input))
+}
+export function endEmbeddedProxySession(source, port, sessionId, options = {}) {
+  return serializeMutation(async () => finishProxySession(await sessionContext(source, port, options), sessionId))
+}
+export function getEmbeddedProxySession(source, port, options = {}) {
+  return serializeMutation(async () => {
+    const context = await sessionContext(source, port, options)
+    return sessionSnapshot(context.port, context.store)
+  })
+}
+
+export function verifyEmbeddedProxySession(source, port, options, verify) {
+  return serializeMutation(async () => {
+    const context = await sessionContext(source, port, options)
+    if (context.store.current(port)?.state !== 'active') throw sessionError('请先开始使用端口，再验证本次会话', 'PROXY_SESSION_NOT_ACTIVE')
+    return verify()
+  })
 }
 
 export async function embeddedPortStatus(source, port, rawOptions = {}) {

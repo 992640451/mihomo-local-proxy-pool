@@ -110,6 +110,7 @@ async function reloadMihomo(runtimeConfigPath) {
 }
 
 async function applyMihomoPortMutation({ source, port, nodeId, nodeIds, strategy, strategyOptions, protocol = 'Mixed', enabled = true }) {
+  if (strategy === 'session-round-robin') throw new Error('会话轮换仅支持受管内置 Mihomo 模式')
   const catalog = await loadSubscriptionCatalog(source)
   const normalized = validatePortConfig({ port, nodeId, nodeIds, strategy, strategyOptions, protocol, enabled }, { availableNodeIds: new Set(catalog.nodes.map(item => item.id)) })
   const selectedNodes = normalized.nodeIds.map(id => catalog.nodes.find(item => item.id === id))

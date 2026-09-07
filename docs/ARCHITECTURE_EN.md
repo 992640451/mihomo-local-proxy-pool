@@ -32,7 +32,7 @@ Migration backups are emergency upgrade rollback aids, not replacements for stop
 
 ## Versioned API and recovery boundaries
 
-`server/automation/contract.mjs` defines the 18 `/api/v1` operations. Application 1.2.0 and API v1 evolve independently. Additive response fields are compatible; breaking changes require a new API major version. Unversioned endpoints reject API tokens. See [Automation](../AUTOMATION_EN.md) for scopes and CLI conventions.
+`server/automation/contract.mjs` defines the 21 `/api/v1` operations. Application versions and API v1 evolve independently. Additive response fields are compatible; breaking changes require a new API major version. Unversioned endpoints reject API tokens. See [Automation](../AUTOMATION_EN.md) for scopes and CLI conventions.
 
 Configuration apply requires a signed, unexpired plan tied to the same package and configuration digest. Conflicting operations are excluded during changes. Subscription activation waits for core reload confirmation and restores snapshots/core configuration on failure. The database and external core are not a distributed transaction: rollback failures must be explicit, not described as unconditional atomic commits.
 

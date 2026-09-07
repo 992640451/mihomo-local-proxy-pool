@@ -15,6 +15,9 @@ export const API_OPERATIONS = [
   ['put', '/ports/:port', 'applyPort', '创建或替换端口配置', ['ports:write'], 'PortInput', 'PortResult'],
   ['delete', '/ports/:port', 'deletePort', '删除端口配置（幂等）', ['ports:write'], null, 'PortDeletion'],
   ['get', '/ports/:port/status', 'getPortStatus', '读取策略组状态', ['read'], null, 'PortStatus'],
+  ['get', '/ports/:port/session', 'getProxySession', '读取代理使用会话', ['read'], null, 'ProxySessionStatus'],
+  ['post', '/ports/:port/sessions', 'startProxySession', '开始使用端口（同一 launchId 幂等）', ['ports:write'], 'ProxySessionStart', 'ProxySessionStatus'],
+  ['post', '/ports/:port/sessions/:sessionId/end', 'endProxySession', '结束指定代理使用会话', ['ports:write'], null, 'ProxySessionStatus'],
   ['post', '/ports/:port/verify', 'verifyPort', '主动验证代理池；会产生网络流量', ['ports:write'], 'VerifyInput', 'Verification'],
   ['post', '/config/export', 'exportConfiguration', '导出加密配置（包含凭据，须有全部管理权限）', ['subscriptions:write', 'ports:write'], 'ExportInput', 'RecoveryPackage'],
   ['post', '/config/plan', 'planConfiguration', '只预检：比较增改删和缺失节点，不应用配置', ['subscriptions:write', 'ports:write'], 'PlanInput', 'ConfigurationPlan'],
@@ -33,7 +36,7 @@ const subscriptionProperties = {
 }
 const portProperties = {
   nodeId: string, nodeIds: { ...array(string), minItems: 1, maxItems: 64, uniqueItems: true },
-  strategy: { enum: ['select', 'fallback', 'url-test', 'consistent-hashing', 'round-robin'] },
+  strategy: { enum: ['select', 'fallback', 'url-test', 'consistent-hashing', 'round-robin', 'session-round-robin'] },
   protocol: { enum: ['Mixed', 'HTTP', 'SOCKS5'] }, enabled: boolean,
   strategyOptions: object({ healthCheckUrl: { type: 'string', format: 'uri' }, intervalSeconds: integer, timeoutMs: integer, toleranceMs: integer, maxFailedTimes: integer }),
 }
@@ -42,6 +45,10 @@ const summary = { appVersion: string, createdAt: timestamp, subscriptions: integ
 const importProperties = { recoveryPackage: ref('RecoveryPackage'), password: { type: 'string', minLength: 8, maxLength: 256, writeOnly: true } }
 
 export const API_SCHEMAS = {
+  ProxySessionStart: { ...object({ launchId: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$' }, profileId: { type: 'string', maxLength: 256 } }, ['launchId']), additionalProperties: false },
+  ProxySessionStatus: object({ port: integer, state: { enum: ['idle', 'preparing', 'activating', 'active', 'ending', 'ended', 'recovery-required'] }, lastNodeId: nullableString,
+    session: { anyOf: [{ type: 'null' }, object({ sessionId: string, launchId: string, profileId: string, port: integer, state: string, nodeId: nullableString, nodeName: nullableString, startedAt: timestamp, endedAt: timestamp, createdAt: integer, error: nullableString }, ['sessionId', 'launchId', 'port', 'state'])] },
+  }, ['port', 'state', 'session', 'lastNodeId']),
   Error: object({ error: object({ code: string, message: string, requestId: string, detail: string, meta: { type: 'object' } }, ['code', 'message', 'requestId']) }, ['error']),
   OpenApi: object({ openapi: string, info: { type: 'object' }, paths: { type: 'object' } }, ['openapi', 'info', 'paths']),
   Runtime: object({ appVersion: string, startedAt: timestamp, processUptimeSeconds: integer, systemUptimeSeconds: integer, totalNodes: integer, providerCount: integer, countryCount: integer, hostname: string, platform: string, core: { type: 'object' }, buildInfo: { type: ['object', 'null'] } }, ['appVersion', 'totalNodes', 'core']),
@@ -82,8 +89,8 @@ export const API_SCHEMAS = {
 export function buildOpenApi() {
   const paths = {}
   for (const operation of API_OPERATIONS) {
-    const apiPath = operation.path.replace(/:([a-z]+)/g, '{$1}')
-    const parameters = [...operation.path.matchAll(/:([a-z]+)/g)].map(([, name]) => ({ name, in: 'path', required: true, schema: name === 'port' ? { type: 'integer', minimum: 1024, maximum: 65535 } : { type: 'string', minLength: 1 } }))
+    const apiPath = operation.path.replace(/:([A-Za-z][A-Za-z0-9]*)/g, '{$1}')
+    const parameters = [...operation.path.matchAll(/:([A-Za-z][A-Za-z0-9]*)/g)].map(([, name]) => ({ name, in: 'path', required: true, schema: name === 'port' ? { type: 'integer', minimum: 1024, maximum: 65535 } : { type: 'string', minLength: 1 } }))
     paths[apiPath] ||= {}
     paths[apiPath][operation.method] = {
       operationId: operation.operationId, summary: operation.summary,

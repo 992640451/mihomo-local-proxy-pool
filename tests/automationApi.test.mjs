@@ -75,6 +75,11 @@ test('v1 uses deny-by-default scopes; bearer credentials cannot access UI APIs o
       assert.equal(response.status, 403, operation.operationId)
       assert.equal((await response.json()).error.code, 'INSUFFICIENT_SCOPE')
     } else {
+      if (operation.operationId === 'getProxySession') {
+        assert.equal(response.status, 501)
+        assert.equal((await response.json()).error.code, 'PROXY_SESSION_UNSUPPORTED')
+        continue
+      }
       assert.equal(response.status, 200, operation.operationId)
       const output = await response.json(), validate = apiSchemaValidator(operation.output)
       assert.ok(validate(output), `${operation.operationId}: ${JSON.stringify(validate.errors)}`)

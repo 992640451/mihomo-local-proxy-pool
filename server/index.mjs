@@ -8,7 +8,8 @@ import { buildNativeCatalog, defaultConfigDir, loadSubscriptionCatalog } from '.
 import { applyMihomoPort, deleteMihomoPort } from './mihomoConfig.mjs'
 import { probeProxyEgress, verifyProxyPool } from './egressProbe.mjs'
 import { createCredentialVersion, SessionStore } from './sessionStore.mjs'
-import { applyEmbeddedPort, applyEmbeddedSubscriptionChange, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, ensureEmbeddedCore, exportEmbeddedCoreState, isEmbeddedCoreEnabled, restoreEmbeddedCoreState, syncEmbeddedCore, validateEmbeddedCoreState } from './embeddedCore.mjs'
+import { ProxySessionStore } from './proxySessionStore.mjs'
+import { applyEmbeddedPort, applyEmbeddedSubscriptionChange, deleteEmbeddedPort, embeddedCoreStatus, embeddedListeners, embeddedPortStatus, endEmbeddedProxySession, ensureEmbeddedCore, exportEmbeddedCoreState, getEmbeddedProxySession, isEmbeddedCoreEnabled, restoreEmbeddedCoreState, startEmbeddedProxySession, syncEmbeddedCore, validateEmbeddedCoreState } from './embeddedCore.mjs'
 import { SubscriptionStore } from './subscriptions/store.mjs'
 import { SubscriptionService } from './subscriptions/service.mjs'
 import { requestContext } from './http/requestContext.mjs'
@@ -34,7 +35,10 @@ import { registerTokenRoutes } from './routes/tokens.mjs'
 import { registerAutomationRoutes } from './routes/automation.mjs'
 import { UpdateService, launchPortableWorker } from './updates/service.mjs'
 import { registerUpdateRoutes } from './routes/updates.mjs'
+import { registerBrowserRoutes } from './routes/browser.mjs'
 import { isUpdateMaintenance, updateControlAuthorized, checkListeners } from './updates/runtime.mjs'
+import { RoxyIntegrationStore } from './browser/roxyStore.mjs'
+import { RoxyIntegrationService } from './browser/roxyService.mjs'
 
 const app = express()
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -59,6 +63,11 @@ const persistentRoot = [subscriptionMode !== 'legacy' ? subscriptionDbFile : nul
 const auditDbFile = process.env.AUDIT_DB || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), 'audit.sqlite') : ':memory:')
 const observationDbFile = process.env.OBSERVABILITY_DB || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), 'observability.sqlite') : ':memory:')
 const tokenDbFile = process.env.API_TOKEN_DB || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), 'api-tokens.sqlite') : ':memory:')
+const proxySessionDbFile = process.env.PROXY_SESSION_DB || path.join(path.dirname(path.resolve(process.env.EMBEDDED_CORE_STATE_PATH || persistentRoot || '/data/embedded-core.json')), 'proxy-sessions.sqlite')
+const proxySessionStore = embeddedCore ? new ProxySessionStore({ filename: proxySessionDbFile }) : null
+const browserIntegrationDbFile = process.env.BROWSER_INTEGRATION_DB || path.join(path.dirname(path.resolve(persistentRoot || process.env.EMBEDDED_CORE_STATE_PATH || '/data/embedded-core.json')), 'browser-integrations.sqlite')
+const browserIntegrationKey = process.env.BROWSER_INTEGRATION_MASTER_KEY || process.env.SUBSCRIPTION_MASTER_KEY || process.env.EMBEDDED_CORE_SECRET || authHash
+const roxyStore = browserIntegrationKey.length >= 16 ? new RoxyIntegrationStore({ filename: browserIntegrationDbFile, masterKey: browserIntegrationKey }) : null
 const updateDirectory = process.env.PPM_UPDATE_DIR || (persistentRoot ? path.join(path.dirname(path.resolve(persistentRoot)), '.updates') : path.join(root, '.local', 'updates'))
 const updateKeys = JSON.parse(readFileSync(path.join(root, 'release', 'update-public-keys.json'), 'utf8'))
 const updateService = new UpdateService({ directory: updateDirectory, version: appVersion, keys: updateKeys, launch: () => launchPortableWorker(updateDirectory) })
@@ -100,7 +109,8 @@ if (subscriptionMode !== 'legacy') {
   await subscriptionService.initialize()
 }
 
-const coreOptions = subscriptionService ? { definitionProvider: () => subscriptionService.getDefinitions({ includeOrphaned: true, includeDisabled: true }) } : {}
+const coreOptions = { proxySessionStore, ...(subscriptionService ? { definitionProvider: () => subscriptionService.getDefinitions({ includeOrphaned: true, includeDisabled: true }) } : {}) }
+let roxyService = null
 
 async function loadLiveCatalog() {
   const source = defaultConfigDir()
@@ -109,6 +119,18 @@ async function loadLiveCatalog() {
     : await loadSubscriptionCatalog(source)
   if (embeddedCore) catalog.listeners = await embeddedListeners(source, coreOptions)
   return catalog
+}
+
+if (roxyStore && embeddedCore) {
+  roxyService = new RoxyIntegrationService({
+    store: roxyStore,
+    host: process.env.ROXY_API_HOST || (process.env.PPM_PORTABLE === '1' ? '127.0.0.1' : process.env.NODE_ENV === 'production' ? 'host.docker.internal' : '127.0.0.1'),
+    loadCatalog: loadLiveCatalog,
+    proxySessionStore,
+    startSession: (port, input) => startEmbeddedProxySession(defaultConfigDir(), port, input, coreOptions),
+    endSession: (port, sessionId) => endEmbeddedProxySession(defaultConfigDir(), port, sessionId, coreOptions),
+    getSession: port => getEmbeddedProxySession(defaultConfigDir(), port, coreOptions),
+  })
 }
 
 async function syncCoreAfterSubscriptionChange() {
@@ -134,6 +156,7 @@ const observationService = new ObservationService({
 })
 const recoveryService = new RecoveryService({
   subscriptionStore,
+  beforeRestore: () => proxySessionStore?.assertIdle(),
   appVersion,
   exportPorts: embeddedCore ? () => exportEmbeddedCoreState(coreOptions) : null,
   restorePorts: embeddedCore ? state => restoreEmbeddedCoreState(defaultConfigDir(), state, coreOptions) : null,
@@ -159,7 +182,7 @@ const diagnosticService = new DiagnosticService({
   embeddedCore,
   embeddedCoreStatus,
   loadLiveCatalog,
-  dataFiles: [subscriptionMode !== 'legacy' ? subscriptionDbFile : null, sessionDbFile, auditDbFile, observationDbFile, tokenDbFile, process.env.EMBEDDED_CORE_STATE_PATH].filter(value => value && value !== ':memory:'),
+  dataFiles: [subscriptionMode !== 'legacy' ? subscriptionDbFile : null, sessionDbFile, auditDbFile, observationDbFile, tokenDbFile, roxyStore ? browserIntegrationDbFile : null, process.env.EMBEDDED_CORE_STATE_PATH].filter(value => value && value !== ':memory:'),
   deploymentMode: process.env.PPM_PORTABLE === '1' ? 'portable' : process.env.NODE_ENV === 'production' ? 'container' : 'source',
 })
 
@@ -212,6 +235,7 @@ const { requireAuth } = registerAuthRoutes(app, {
 app.use('/api', requireAuth)
 registerUpdateRoutes(app, { service: updateService, auditStore })
 registerTokenRoutes(app, { tokenStore, configured: authConfigured, auditStore })
+registerBrowserRoutes(app, { service: roxyService, auditStore, mutationGate })
 const api = versionedRegistrar(app, { auditStore })
 registerAutomationRoutes(api, { recoveryService, loadLiveCatalog, auditStore, mutationGate })
 registerObservationRoutes(api, { service: observationService, store: observationStore, auditStore, mutationGate })
@@ -235,6 +259,7 @@ registerPortRoutes(api, {
   observationService,
   auditStore,
   mutationGate,
+  browserService: roxyService,
 })
 app.use('/api', apiNotFound)
 app.use(express.static(path.join(root, 'dist'), { setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store') } }))
@@ -282,6 +307,7 @@ export async function startApplication({
   const address = server.address()
   const actualPort = typeof address === 'object' && address ? address.port : port
   await reconcileUpdateMaintenance()
+  roxyService?.resume().catch(() => {})
   maintenanceTimer = setInterval(() => { reconcileUpdateMaintenance().catch(() => {}) }, 500)
   maintenanceTimer.unref()
   console.log(`subscription API listening at http://${host}:${actualPort}`)
@@ -301,10 +327,13 @@ export function stopApplication() {
       if (error) return reject(error)
       try {
         await observationStopped
+        await roxyService?.stop()
         await subscriptionService?.changeQueue
         observationStore.close()
         subscriptionStore?.close()
         sessionStore.close()
+        proxySessionStore?.close()
+        roxyStore?.close()
         tokenStore.close()
         auditStore.close()
         server = null

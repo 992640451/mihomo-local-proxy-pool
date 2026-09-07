@@ -39,6 +39,8 @@ services:
       - type: volume
         source: proxy-mihomo-data
         target: /mihomo
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     init: true
     read_only: true

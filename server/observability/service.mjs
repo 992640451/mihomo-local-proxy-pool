@@ -84,6 +84,7 @@ export class ObservationService {
     const catalog = await this.loadCatalog(), listener = (catalog.listeners || []).find(item => item.port === Number(port) && !item.isGlobal)
     if (!listener) throw new ObservationError('端口池不存在', 404, 'PORT_POOL_NOT_FOUND')
     if (listener.enabled === false) throw new ObservationError('停用的端口池不能验证')
+    if (listener.strategy === 'session-round-robin' && listener.proxySession?.state !== 'active') throw new ObservationError('请先开始使用端口，再验证本次会话', 409, 'PROXY_SESSION_NOT_ACTIVE')
     this.launch('ports', 'manual', [], [listener], attempts)
     const result = await this.pending
     if (result.error) throw new ObservationError(result.error, 502)
@@ -174,7 +175,7 @@ export class ObservationService {
       if (!this.store.settings.enabled || this.stopping) return
       const rotate = (items, offset, count) => items.length ? Array.from({ length: Math.min(items.length, count) }, (_, i) => items[(offset + i) % items.length]) : []
       const nodes = rotate(catalog.nodes, this.nodeOffset, OBSERVABILITY_LIMITS.nodeBatch)
-      const ports = rotate((catalog.listeners || []).filter(item => !item.isGlobal && item.enabled !== false), this.portOffset, OBSERVABILITY_LIMITS.scheduledPorts)
+      const ports = rotate((catalog.listeners || []).filter(item => !item.isGlobal && item.enabled !== false && item.strategy !== 'session-round-robin'), this.portOffset, OBSERVABILITY_LIMITS.scheduledPorts)
       this.nodeOffset += nodes.length; this.portOffset += ports.length
       if (nodes.length || ports.length) this.launch('scheduled', 'scheduler', nodes.map(node => node.id), ports, this.store.settings.attempts)
     } catch (error) {

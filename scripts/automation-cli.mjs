@@ -2,10 +2,14 @@ import { open, readFile, stat } from 'node:fs/promises'
 import { RECOVERY_MAX_FILE_BYTES } from '../shared/recoveryLimits.js'
 import { redactText } from '../server/security/redaction.mjs'
 
-export const AUTOMATION_COMMANDS = new Set(['doctor', 'backup', 'restore', 'ports', 'subscriptions'])
+export const AUTOMATION_COMMANDS = new Set(['doctor', 'backup', 'restore', 'ports', 'subscriptions', 'launch'])
 export const AUTOMATION_USAGE = `自动化（需要设置 PPM_API_TOKEN 或 PPM_API_TOKEN_FILE）：
   ppm doctor [--url http://127.0.0.1:4173]
   ppm ports list
+  ppm ports session <port>
+  ppm ports start <port> <launchId> [profileId]
+  ppm ports end <port> <sessionId>
+  ppm launch <browser-session.json>
   ppm subscriptions refresh <id|--all>
   ppm backup <file.json>
   ppm restore <file.json> [--dry-run] [--plan plan.json]
@@ -24,7 +28,7 @@ export function automationBaseUrl(value = 'http://127.0.0.1:4173') {
   return url.toString().replace(/\/$/, '')
 }
 
-async function smallSecret(env, name) {
+export async function smallSecret(env, name) {
   const filename = env[`${name}_FILE`]
   if (filename) {
     if ((await stat(filename)).size > 4096) throw new Error(`${name}_FILE 文件过大`)
@@ -65,12 +69,17 @@ function parseArguments(args) {
 export async function runAutomation(command, args, { env = process.env, fetchImpl = fetch, stdout = text => console.log(text) } = {}) {
   if (args.includes('--help') || args.includes('-h')) { stdout(AUTOMATION_USAGE); return 0 }
   const { options, positional } = parseArguments(args)
-  const allowedOptions = { doctor: ['--url'], ports: ['--url'], subscriptions: ['--url', '--all'], backup: ['--url'], restore: ['--url', '--plan', '--apply', '--dry-run'] }[command]
+  const allowedOptions = { doctor: ['--url'], ports: ['--url'], launch: ['--url'], subscriptions: ['--url', '--all'], backup: ['--url'], restore: ['--url', '--plan', '--apply', '--dry-run'] }[command]
   if (!allowedOptions || Object.keys(options).some(option => !allowedOptions.includes(option))) throw new Error('命令包含不支持的选项；使用 --help 查看用法')
   if (command === 'doctor' && positional.length) throw new Error('doctor 不接受位置参数')
-  if (command === 'ports' && (positional.length !== 1 || positional[0] !== 'list')) throw new Error('用法：ppm ports list')
+  if (command === 'ports') {
+    const [action, port] = positional
+    const counts = { list: [1], session: [2], start: [3, 4], end: [3] }
+    if (!counts[action]?.includes(positional.length) || (action !== 'list' && (!/^[0-9]+$/.test(port) || Number(port) < 1024 || Number(port) > 65535))) throw new Error('用法：ppm ports list | session <port> | start <port> <launchId> [profileId] | end <port> <sessionId>')
+  }
   if (command === 'subscriptions' && (positional[0] !== 'refresh' || (options['--all'] ? positional.length !== 1 : positional.length !== 2))) throw new Error('用法：ppm subscriptions refresh <id|--all>')
   if (['backup', 'restore'].includes(command) && positional.length !== 1) throw new Error(`用法：ppm ${command} <file.json>`)
+  if (command === 'launch' && positional.length !== 1) throw new Error('用法：ppm launch <browser-session.json>')
   if (options['--apply'] && (options['--dry-run'] || !options['--plan'])) throw new Error('--apply 必须提供 --plan，且不能与 --dry-run 同时使用')
   const baseUrl = automationBaseUrl(options['--url'] || env.PPM_API_URL)
   const secret = await smallSecret(env, 'PPM_API_TOKEN')
@@ -96,8 +105,18 @@ export async function runAutomation(command, args, { env = process.env, fetchImp
     return data
   }
   const print = data => stdout(JSON.stringify(data, null, 2))
+  if (command === 'launch') {
+    const { launchBrowserSession } = await import('./session-launcher.mjs')
+    return launchBrowserSession(await readJsonFile(positional[0], 65536), { request, env, fetchImpl, print })
+  }
   if (command === 'doctor') { const result = await request('/diagnostics'); print(result); return result.status === 'ok' ? 0 : 2 }
-  if (command === 'ports') { print(await request('/ports')); return 0 }
+  if (command === 'ports') {
+    const [action, port, id, profileId = ''] = positional
+    const result = action === 'list' ? await request('/ports') : action === 'session' ? await request(`/ports/${port}/session`)
+      : action === 'start' ? await request(`/ports/${port}/sessions`, { launchId: id, profileId })
+      : await request(`/ports/${port}/sessions/${encodeURIComponent(id)}/end`, {})
+    print(result); return action === 'start' && result.state !== 'active' ? 2 : 0
+  }
   if (command === 'subscriptions') {
     const result = await request(options['--all'] ? '/subscriptions/refresh-all' : `/subscriptions/${encodeURIComponent(positional[1])}/refresh`, {})
     print(result); return result.results?.some(item => !item.ok) ? 2 : 0

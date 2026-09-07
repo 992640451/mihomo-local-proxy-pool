@@ -102,7 +102,7 @@ function validatePayload(payload) {
 }
 
 export class RecoveryService {
-  constructor({ subscriptionStore, exportPorts, restorePorts, validatePorts, suspend, resume, appVersion = 'unknown' } = {}) {
+  constructor({ subscriptionStore, exportPorts, restorePorts, validatePorts, beforeRestore, suspend, resume, appVersion = 'unknown' } = {}) {
     this.subscriptionStore = subscriptionStore
     this.exportPorts = exportPorts
     this.restorePorts = restorePorts
@@ -110,6 +110,7 @@ export class RecoveryService {
     this.resume = resume
     this.appVersion = appVersion
     this.validatePorts = validatePorts
+    this.beforeRestore = beforeRestore
     this.planSigner = new ConfigurationPlanSigner()
   }
 
@@ -178,6 +179,7 @@ export class RecoveryService {
 
   async restore(recoveryPackage, password, options = {}) {
     if (!this.available()) throw new Error('当前运行模式不支持完整恢复')
+    await this.beforeRestore?.()
     const { validated, summary } = await this.inspect(recoveryPackage, password)
     let suspended = false, suspendToken
     try {

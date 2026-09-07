@@ -1,0 +1,10 @@
+{
+  "port": 17900,
+  "profileId": "roxy-profile-17900",
+  "browser": {
+    "type": "roxy",
+    "apiUrl": "http://127.0.0.1:50000",
+    "workspaceId": "REPLACE_WITH_WORKSPACE_ID",
+    "dirId": "REPLACE_WITH_PROFILE_ID"
+  }
+}

@@ -1,6 +1,7 @@
 import net from 'node:net'
 import { recordAudit } from '../audit/record.mjs'
 import { apiError } from '../http/responses.mjs'
+import { startEmbeddedProxySession, endEmbeddedProxySession, getEmbeddedProxySession, verifyEmbeddedProxySession } from '../embeddedCore.mjs'
 
 export function registerPortRoutes(app, {
   probeHost,
@@ -18,7 +19,22 @@ export function registerPortRoutes(app, {
   observationService,
   auditStore,
   mutationGate,
+  browserService,
 } = {}) {
+  const sessionHandler = (action, operation) => async (req, res) => {
+    if (!embeddedCore) return apiError(req, res, { status: 501, code: 'PROXY_SESSION_UNSUPPORTED', message: '会话轮换仅支持受管内置 Mihomo' })
+    try {
+      const result = await operation(req)
+      if (action) recordAudit(auditStore, req, { action, targetType: 'port', targetId: req.params.port, message: `代理会话状态：${result.state}`, metadata: { sessionId: result.session?.sessionId, nodeId: result.session?.nodeId } })
+      res.set('Cache-Control', 'no-store').json(result)
+    } catch (error) {
+      if (action) recordAudit(auditStore, req, { action, outcome: 'failure', targetType: 'port', targetId: req.params.port, message: error.message })
+      apiError(req, res, { status: error.status || 503, code: error.code || 'PROXY_SESSION_FAILED', message: error.message, error })
+    }
+  }
+  app.get('/api/ports/:port/session', sessionHandler(null, req => getEmbeddedProxySession(defaultConfigDir(), req.params.port, coreOptions)))
+  app.post('/api/ports/:port/sessions', mutationGate.mutation(sessionHandler('proxySession.start', req => startEmbeddedProxySession(defaultConfigDir(), req.params.port, req.body, coreOptions))))
+  app.post('/api/ports/:port/sessions/:sessionId/end', mutationGate.mutation(sessionHandler('proxySession.end', req => endEmbeddedProxySession(defaultConfigDir(), req.params.port, req.params.sessionId, coreOptions))))
   app.put('/api/ports/:port', mutationGate.mutation(async (req, res) => {
     try {
       const applyPort = embeddedCore ? applyEmbeddedPort : applyMihomoPort
@@ -37,7 +53,7 @@ export function registerPortRoutes(app, {
       res.set('Cache-Control', 'no-store').json(result)
     } catch (error) {
       recordAudit(auditStore, req, { action: 'port.apply', outcome: 'failure', targetType: 'port', targetId: req.params.port, message: `端口配置应用失败：${error.message}` })
-      apiError(req, res, { status: 400, code: 'PORT_APPLY_FAILED', message: '端口配置应用失败', error })
+      apiError(req, res, { status: error.status || 400, code: error.code || 'PORT_APPLY_FAILED', message: '端口配置应用失败', error })
     }
   }))
 
@@ -45,11 +61,12 @@ export function registerPortRoutes(app, {
     try {
       const deletePort = embeddedCore ? deleteEmbeddedPort : deleteMihomoPort
       const result = await deletePort({ source: defaultConfigDir(), port: req.params.port, ...coreOptions })
+      if (result.removed && browserService) await browserService.deleteBinding(req.params.port)
       recordAudit(auditStore, req, { action: 'port.delete', targetType: 'port', targetId: req.params.port, message: result.removed ? `已删除端口 ${req.params.port}` : `端口 ${req.params.port} 不存在`, metadata: { removed: result.removed } })
       res.set('Cache-Control', 'no-store').json(result)
     } catch (error) {
       recordAudit(auditStore, req, { action: 'port.delete', outcome: 'failure', targetType: 'port', targetId: req.params.port, message: `端口配置删除失败：${error.message}` })
-      apiError(req, res, { status: 400, code: 'PORT_DELETE_FAILED', message: '端口配置删除失败', error })
+      apiError(req, res, { status: error.status || 400, code: error.code || 'PORT_DELETE_FAILED', message: '端口配置删除失败', error })
     }
   }))
 
@@ -94,9 +111,12 @@ export function registerPortRoutes(app, {
       const catalog = await loadLiveCatalog()
       const listener = (catalog.listeners || []).find(item => Number(item.port) === port)
       if (!listener || listener.isGlobal) return apiError(req, res, { status: 404, code: 'PORT_POOL_NOT_FOUND', message: '端口池不存在' })
-      const result = observationService?.enabled
+      const verify = async () => observationService?.enabled
         ? await observationService.verifyPort(port, req.body?.attempts ?? 8)
         : await verifyProxyPool({ host: probeHost, port, protocol: listener.protocol, attempts: req.body?.attempts ?? 8 })
+      const result = listener.strategy === 'session-round-robin'
+        ? await verifyEmbeddedProxySession(defaultConfigDir(), port, coreOptions, verify)
+        : await verify()
       recordAudit(auditStore, req, { action: 'port.verify', targetType: 'port', targetId: req.params.port, message: `端口 ${port} 验证完成：${result.successes}/${result.attempts} 成功`, metadata: { attempts: result.attempts, successes: result.successes, failures: result.failures, uniqueExitCount: result.uniqueExitCount } })
       res.set('Cache-Control', 'no-store').json(result)
     } catch (error) {

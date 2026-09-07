@@ -7,6 +7,8 @@ import { LogsPage } from "./pages/LogsPage.jsx";
 import { OverviewPage } from "./pages/OverviewPage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
 import { UpdateCenter } from "./components/UpdateCenter.jsx";
+import { ProxySessionControl } from "./components/ProxySessionControl.jsx";
+import { RoxyPortBinding } from "./components/RoxyPortBinding.jsx";
 import { NodesPage } from "./pages/NodesPage.jsx";
 import { ObservabilityPage } from "./pages/ObservabilityPage.jsx";
 import {
@@ -332,6 +334,7 @@ function PortDrawer({
         },
   );
   const [draft, setDraft] = useState(source);
+  const [roxyBinding, setRoxyBinding] = useState(undefined);
   const [provider, setProvider] = useState("全部订阅"),
     [country, setCountry] = useState("全部国家"),
     [query, setQuery] = useState(""),
@@ -398,7 +401,7 @@ function PortDrawer({
       mode === "edit" ? port.id : null,
     );
     if (message) return setError(message);
-    onSave(normalizePort({ ...draft, port: Number(draft.port) }));
+    onSave(normalizePort({ ...draft, port: Number(draft.port) }), roxyBinding);
   };
   return (
     <aside className="drawer pool-drawer">
@@ -484,6 +487,7 @@ function PortDrawer({
               />
             </label>
             <div className="field-row compact">
+              {draft.strategy !== "session-round-robin" && (
               <label className="field">
                 <span>周期（秒）</span>
                 <input
@@ -496,6 +500,7 @@ function PortDrawer({
                   }
                 />
               </label>
+              )}
               <label className="field">
                 <span>超时（毫秒）</span>
                 <input
@@ -507,7 +512,7 @@ function PortDrawer({
                 />
               </label>
             </div>
-            <div className="field-row compact">
+            {draft.strategy !== "session-round-robin" && <div className="field-row compact">
               <label className="field">
                 <span>最大失败次数</span>
                 <input
@@ -534,12 +539,14 @@ function PortDrawer({
                   />
                 </label>
               )}
-            </div>
+            </div>}
+            {draft.strategy === "session-round-robin" && <small>仅开始新会话时检查并选择节点。一个配置文件使用一个端口；会话内故障不自动换点。仅支持受管内置 Mihomo。</small>}
             {draft.strategy === "fallback" && (
               <small>节点将按下方顺序检查；切换对新建连接生效。</small>
             )}
           </section>
         )}
+        {draft.strategy === "session-round-robin" && <RoxyPortBinding port={Number(draft.port)} value={roxyBinding} onChange={setRoxyBinding} />}
         <section className="drawer-section selected-pool">
           <div className="section-title">
             <div>
@@ -789,7 +796,7 @@ function PoolVerificationDialog({ verification, onClose }) {
   );
 }
 
-function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
+function PortsPage({ ports, setPorts, nodes, providers, countries, addLog, reloadPorts }) {
   const [filters, setFilters] = useState(EMPTY_FILTERS),
     [drawer, setDrawer] = useState({ open: false, mode: "new", id: null }),
     [testing, setTesting] = useState(null),
@@ -797,6 +804,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
     [verification, setVerification] = useState(null),
     [deleting, setDeleting] = useState(null),
     [applying, setApplying] = useState(false),
+    [reloading, setReloading] = useState(false),
     [applyError, setApplyError] = useState(""),
     [copyNotice, setCopyNotice] = useState(null);
   const enriched = ports.map((p) => enrichPort(p, nodes)),
@@ -809,7 +817,14 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
     const timer = window.setTimeout(() => setCopyNotice(null), 2600);
     return () => window.clearTimeout(timer);
   }, [copyNotice]);
-  const save = async (rawDraft) => {
+  const reload = async () => {
+    setReloading(true);
+    setApplyError("");
+    try { await reloadPorts(); }
+    catch (error) { setApplyError(error.message); }
+    finally { setReloading(false); }
+  };
+  const save = async (rawDraft, browserBinding) => {
     const draft = normalizePort(rawDraft);
     setApplying(true);
     setApplyError("");
@@ -829,6 +844,16 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
       const result = await response.json();
       if (!response.ok)
         throw new Error(apiErrorMessage(result, "端口配置应用失败"));
+      if (draft.strategy === "session-round-robin" && browserBinding?.dirId) {
+        const bindingResponse = await apiFetch(`/browser/roxy/bindings/${draft.port}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(browserBinding),
+        });
+        const bindingResult = await bindingResponse.json();
+        if (!bindingResponse.ok) throw new Error(apiErrorMessage(bindingResult, "Roxy 窗口绑定失败"));
+      } else if (browserBinding === null || draft.strategy !== "session-round-robin") {
+        const bindingResponse = await apiFetch(`/browser/roxy/bindings/${draft.port}`, { method: "DELETE" });
+        if (!bindingResponse.ok) throw new Error(apiErrorMessage(await bindingResponse.json(), "Roxy 窗口解绑失败"));
+      }
       const applied = {
         ...draft,
         ...result,
@@ -995,6 +1020,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
         eyebrow="PORT POOLS"
         title="代理端口"
         description="每个端口由独立的 Mihomo 监听和策略组提供服务，可使用已导入订阅中的节点，并按所选策略自动路由。"
+        action={<button className="button ghost" disabled={reloading} onClick={reload}>{reloading ? "正在读取…" : "重新读取服务端配置"}</button>}
       />
       {applyError && (
         <div className="toast danger">
@@ -1125,12 +1151,15 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                             ? p.egress
                               ? `当前出口：${p.egress.region || p.egress.country}${p.egress.city ? ` · ${p.egress.city}` : ""} · ${p.egress.ip}`
                               : "点击检测获取当前出口国家"
+                            : p.strategy === "session-round-robin"
+                              ? "本次使用固定节点；结束后再次开始轮换"
                             : p.activeNodeName
                               ? `当前活动：${p.activeNodeName}`
                               : p.node
                                 ? `当前首选：${p.node.name}`
                                 : "无可用节点"}
                         </small>
+                        {p.strategy === "session-round-robin" && p.enabled && <ProxySessionControl port={p.port} onChange={proxySession => setPorts(current => current.map(item => item.port === p.port ? { ...item, proxySession } : item))} />}
                         {p.nodeWarning && (
                           <small className="node-warning" title="关联节点已不在当前有效订阅中；端口配置仍保留，可修改节点或删除端口。">
                             {p.nodeWarning}
@@ -1162,7 +1191,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                       <div className="actions">
                         {!p.isGlobal && (
                           <button
-                            disabled={applying || deleting === p.id}
+                            disabled={applying || deleting === p.id || Boolean(p.proxySession)}
                             onClick={() =>
                               setDrawer({ open: true, mode: "edit", id: p.id })
                             }
@@ -1195,7 +1224,7 @@ function PortsPage({ ports, setPorts, nodes, providers, countries, addLog }) {
                         {!p.isGlobal && (
                           <button
                             className="delete"
-                            disabled={deleting === p.id || verifying === p.id}
+                            disabled={deleting === p.id || verifying === p.id || Boolean(p.proxySession)}
                             onClick={() => remove(p)}
                           >
                             {deleting === p.id ? "删除中" : "删除"}
@@ -1814,6 +1843,10 @@ export default function App() {
         providers={catalog.providers}
         countries={catalog.countries}
         addLog={addLog}
+        reloadPorts={async () => {
+          await refresh();
+          addLog("重新读取服务端端口配置");
+        }}
       />
     ),
     nodes: <NodesPage catalog={catalog} />,
@@ -1825,14 +1858,9 @@ export default function App() {
         runtime={liveRuntime}
         refreshSeconds={refreshSeconds}
         setRefreshSeconds={setRefreshSeconds}
-        refresh={refresh}
         onRecovered={async () => {
           await refresh();
           setPorts([]);
-        }}
-        resetPorts={() => {
-          setPorts(dedupePortsByPort(catalog.listeners || []));
-          addLog("重新同步服务端端口配置");
         }}
       />
     ),

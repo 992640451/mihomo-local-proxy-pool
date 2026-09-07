@@ -93,7 +93,7 @@ Linux/macOS 通过 `export PPM_API_TOKEN_FILE=/private/ppm-api-secret.txt` 等�
 登录后打开 `/api/v1/openapi.json`，或携带 `Authorization: Bearer <令牌>` 获取 JSON。
 合同遵循 [OpenAPI 3.1.1](https://spec.openapis.org/oas/v3.1.1.html)；源码与路由共同维护在
 `server/automation/contract.mjs`，路由只为显式列表创建 v1 别名。没有匿名 OpenAPI 或匿名 v1 API。
-当前冻结 18 个操作；请求使用合同的 JSON Schema 校验，响应允许增加字段，调用方应忽略未知字段。
+当前提供 21 个操作；请求使用合同的 JSON Schema 校验，响应允许增加字段，调用方应忽略未知字段。浏览器会话和启动命令参见[会话轮换使用指南](docs/BROWSER_SESSIONS.md)。
 每个操作的 `x-required-scopes` 是需要同时满足的权限，不是 OAuth 登录流程。
 
 ```text
@@ -110,6 +110,9 @@ GET    /api/v1/ports
 PUT    /api/v1/ports/{port}
 DELETE /api/v1/ports/{port}
 GET    /api/v1/ports/{port}/status
+GET    /api/v1/ports/{port}/session
+POST   /api/v1/ports/{port}/sessions
+POST   /api/v1/ports/{port}/sessions/{sessionId}/end
 POST   /api/v1/ports/{port}/verify
 POST   /api/v1/config/export
 POST   /api/v1/config/plan

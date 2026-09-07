@@ -76,7 +76,7 @@ test('应用、锁文件、Compose 和双语变更记录版本一致', async () 
 })
 
 test('双语自动化指南列出的接口与实际 API 合同一致', async () => {
-  const expected = API_OPERATIONS.map(operation => `${operation.method.toUpperCase()} /api/v1${operation.path.replace(/:([a-z]+)/g, '{$1}')}`).sort()
+  const expected = API_OPERATIONS.map(operation => `${operation.method.toUpperCase()} /api/v1${operation.path.replace(/:([A-Za-z][A-Za-z0-9]*)/g, '{$1}')}`).sort()
   for (const file of ['AUTOMATION.md', 'AUTOMATION_EN.md']) {
     const listed = [...(await read(file)).matchAll(/^(GET|POST|PUT|PATCH|DELETE)\s+(\/api\/v1\S+)\s*$/gm)].map(match => `${match[1]} ${match[2]}`).sort()
     assert.deepEqual(listed, expected, file)

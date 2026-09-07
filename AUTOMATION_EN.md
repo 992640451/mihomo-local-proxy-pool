@@ -65,7 +65,7 @@ The UI uses the same planning workflow, displaying up to 100 IDs per category; t
 
 After browser login, open `/api/v1/openapi.json`, or retrieve it with `Authorization: Bearer <token>`. The contract follows [OpenAPI 3.1.1](https://spec.openapis.org/oas/v3.1.1.html). `server/automation/contract.mjs` maintains the explicit route allowlist and contract together; new UI routes are not automatically exposed. Neither OpenAPI nor other v1 endpoints are anonymous.
 
-The contract currently defines 18 operations. Requests are validated against its JSON Schemas; responses may gain fields, which clients should ignore if unknown. Each operation's `x-required-scopes` lists scopes required together; it is not an OAuth login flow.
+The contract currently defines 21 operations. Requests are validated against its JSON Schemas; responses may gain fields, which clients should ignore if unknown. Each operation's `x-required-scopes` lists scopes required together; it is not an OAuth login flow. See [browser session rotation](docs/BROWSER_SESSIONS_EN.md) for session and launcher commands.
 
 ```text
 GET    /api/v1/runtime
@@ -81,6 +81,9 @@ GET    /api/v1/ports
 PUT    /api/v1/ports/{port}
 DELETE /api/v1/ports/{port}
 GET    /api/v1/ports/{port}/status
+GET    /api/v1/ports/{port}/session
+POST   /api/v1/ports/{port}/sessions
+POST   /api/v1/ports/{port}/sessions/{sessionId}/end
 POST   /api/v1/ports/{port}/verify
 POST   /api/v1/config/export
 POST   /api/v1/config/plan

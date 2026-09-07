@@ -3,7 +3,8 @@ export const PORT_STRATEGIES = {
   fallback: { label: '主备切换', description: '主节点不可用时按顺序切换', minNodes: 2 },
   'url-test': { label: '自动优选', description: '定期测速并使用延迟最低的节点', minNodes: 2 },
   'consistent-hashing': { label: '稳定均衡', description: '同一目标地址稳定分配到同一节点', minNodes: 2 },
-  'round-robin': { label: '轮询均衡', description: '新连接依次分配给不同节点', minNodes: 2 },
+  'round-robin': { label: '按连接轮询', description: '新连接依次分配给不同节点', minNodes: 2 },
+  'session-round-robin': { label: '会话轮换', description: '本次使用固定节点，下次开始切换', minNodes: 2 },
 }
 
 export const DEFAULT_STRATEGY_OPTIONS = {
@@ -75,6 +76,8 @@ export function validatePortConfig(rawPort, { availableNodeIds, portAllowed } = 
 
 export function buildProxyGroup(rawPort, proxyNames, name = `PPM-${rawPort.port}`) {
   const port = normalizePortConfig(rawPort)
+  // Only the server may supply a live binding. A newly configured port is closed.
+  if (port.strategy === 'session-round-robin') return { name, type: 'select', proxies: ['REJECT'] }
   const group = { name, type: port.strategy, proxies: [...proxyNames] }
   if (port.strategy === 'consistent-hashing' || port.strategy === 'round-robin') {
     group.type = 'load-balance'
