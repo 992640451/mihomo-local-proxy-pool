@@ -67,7 +67,7 @@ Linux/macOS 通过 `export PPM_API_TOKEN_FILE=/private/ppm-api-secret.txt` 等�
 
 复用既有 `ppm-recovery` v1 AES-256-GCM/scrypt 加密包；明文载荷上限 24 MiB，文件上限 33 MiB。
 口令须为 8–256 字符。包含订阅、快照、节点原始配置/凭据和端口池；
-不包含管理认证、会话、API 令牌、审计、检测历史/调度设置、主机路径或容器网络设置。
+不包含管理认证、登录会话、活动代理使用会话、Roxy API Key/窗口绑定、API 令牌、审计、检测历史/调度设置、主机路径或容器网络设置。应用恢复前必须结束所有代理使用会话。
 因此恢复配置不会恢复旧令牌，也不会迁移目标机器的端口发布范围。
 
 1. `POST /api/v1/config/export` 导出加密包。

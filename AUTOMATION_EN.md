@@ -49,7 +49,7 @@ Output is JSON. Exit codes are `0` for success, `1` for argument/file/HTTP/authe
 
 ## Configuration planning and restore
 
-Backups use the existing `ppm-recovery` v1 AES-256-GCM/scrypt format. Plaintext payloads are limited to 24 MiB and files to 33 MiB; passphrases must be 8–256 characters. Packages contain subscriptions, snapshots, raw node configuration/credentials, and port pools. They exclude administrator authentication, sessions, API tokens, audit events, observation history/probe schedules, host paths, and container networking. Restoring does not resurrect old tokens or change the target host's published ports.
+Backups use the existing `ppm-recovery` v1 AES-256-GCM/scrypt format. Plaintext payloads are limited to 24 MiB and files to 33 MiB; passphrases must be 8–256 characters. Packages contain subscriptions, snapshots, raw node configuration/credentials, and port pools. They exclude administrator authentication, login sessions, active proxy-use sessions, Roxy API keys/window bindings, API tokens, audit events, observation history/probe schedules, host paths, and container networking. End all proxy-use sessions before applying a restore. Restoring does not resurrect old tokens or change the target host's published ports.
 
 1. `POST /api/v1/config/export` exports the encrypted package.
 2. `POST /api/v1/config/plan` decrypts and validates it, returning added, modified, and deleted subscription/node/port IDs and unchanged counts. `missingNodes` identifies nonexistent nodes referenced by ports and blocks application; `unavailableNodes` warns about orphaned nodes or disabled subscriptions. Port ranges, protocols, strategies and node counts use the same validators as restore. Planning neither writes configuration nor reloads the core.

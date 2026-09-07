@@ -41,4 +41,8 @@ Reuse the same `launchId` only when retrying one logical start. A new run needs 
 
 Session state is stored in `proxy-sessions.sqlite` next to the embedded core state (override with `PROXY_SESSION_DB`). Recovery exports include strategy configuration but not live proxy sessions; close outstanding sessions before applying recovery. Node identity does not guarantee a fixed public IP.
 
+Roxy API keys and window bindings are stored in `browser-integrations.sqlite` in the same directory (override with `BROWSER_INTEGRATION_DB`), with the API key encrypted by a persistent master key. Set a stable `BROWSER_INTEGRATION_MASTER_KEY` of at least 16 characters to separate that key; changing it after data has been written makes the old API key unreadable. Configuration recovery packages exclude this database and key. A complete deployment backup must preserve the database and its matching master key: keep `.env` separately for Docker, or the complete `data` directory containing `config.env` for portable installations.
+
+The supported Roxy path stays on one computer: portable deployments use loopback and Docker uses the host gateway. `ROXY_API_HOST` is an advanced network override, and the Roxy API key is sent with HTTP requests. Never point it at an untrusted network or public address, and do not expose the Roxy API through port forwarding.
+
 Run `npm test`, `npm run build`, and `node tests/proxySessionCore.integration.mjs PATH_TO_MIHOMO` for validation. The real-core test uses isolated local fixtures.

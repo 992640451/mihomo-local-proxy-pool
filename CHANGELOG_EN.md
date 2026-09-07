@@ -6,6 +6,20 @@ Public versions follow semantic versioning. This file records user-facing behavi
 
 ## [Unreleased]
 
+### Added
+
+- A managed-embedded-Mihomo session-rotation strategy. Starting selects a healthy node different from the previous run, pins it for the session, and ending blocks the port and drains existing connections. State survives application/core restarts, while interrupted transitions require explicit recovery.
+- Roxy local-API integration in System Settings, including team/project/window discovery, encrypted API-key storage, proxy synchronization, and one-click launch, close monitoring, and session completion from a port card.
+- Proxy-session query/start/end operations in the automation API, `ports session/start/end` and browser-launch configuration in the CLI, plus regular-browser integration through an independent process lifecycle.
+
+### Fixed
+
+- The update dialog now explicitly reports when the installed release is current, exposes release notes as a visible button, and no longer implies the release is current when the latest version could not be confirmed.
+
+### Improved
+
+- System Settings is organized into General, Browser integrations, Automation, Data safety, and System sections. The proxy-port page also has an explicit server-state reload action.
+
 ## [1.3.0] - 2026-09-03
 
 ### Added

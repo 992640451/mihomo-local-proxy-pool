@@ -42,7 +42,7 @@ Your application only needs one local address. Proxy Port Manager and Mihomo han
 
 | One stable address | Automatic routing | Visible and verifiable |
 | --- | --- | --- |
-| Your app configuration stays unchanged when nodes change | Failed nodes are skipped automatically, with five routing strategies | Manage pools in a browser and verify listeners and exit distribution |
+| Your app configuration stays unchanged when nodes change | Six strategies cover failover, connection rotation, and session pinning | Manage pools in a browser and verify listeners and exit distribution |
 
 It is designed for local development, crawlers, automation tools, and applications that need a stable HTTP or SOCKS5 proxy entry.
 
@@ -168,7 +168,7 @@ The management service is ready when the response contains `status: ok`.
 
 “Listener reachable” only confirms that a port accepts connections. Also click **Verify (验证)** to check access to the exit-lookup service through the proxy. Node tests measure request latency, not download bandwidth.
 
-For round-robin routing, select at least two nodes and choose **Round Robin**. Round robin applies to new connections; an established TCP connection does not move between nodes.
+For connection-based rotation, select at least two nodes and choose **Connection round robin**. Rotation applies to new connections; an established TCP connection does not move between nodes.
 
 ## Connect your app
 
@@ -210,7 +210,7 @@ Browsers, IDEs, downloaders, and crawlers usually accept the same settings: host
 ## Verify round robin
 
 1. Select at least two healthy nodes for the pool.
-2. Choose **Round Robin** and save.
+2. Choose **Connection round robin** and save.
 3. Click **Verify** in the port list.
 4. The service opens eight independent connections and reports success rate, exit-IP distribution, and average latency.
 
@@ -224,9 +224,10 @@ Multiple exit IPs usually indicate that rotation is working. Different nodes may
 | Failover | Reliability | Tries backup nodes in order after a failure |
 | Lowest latency | Speed | Selects a currently faster healthy node |
 | Consistent hashing | Stable routing per target | Tries to keep the same target on the same node |
-| Round robin | Spreading new connections | Rotates new connections across healthy nodes |
+| Connection round robin | Spreading new connections | Assigns each new connection to the next healthy node |
+| Session rotation | Keeping one node for an entire browser-profile run | Chooses a healthy node on start and rotates after the run ends |
 
-Automatic strategies only use nodes that pass health checks. The service rejects invalid pools, unpublished ports, or nodes removed by a subscription update and explains the reason.
+Automatic strategies only use nodes that pass health checks. Session rotation requires the managed embedded Mihomo deployment; its port rejects traffic until a session starts, and an active session never changes nodes after a failure. The service rejects invalid pools, unpublished ports, or nodes removed by a subscription update and explains the reason. See [browser session rotation](docs/BROWSER_SESSIONS_EN.md) for the complete workflow.
 
 ## Core features
 
@@ -235,6 +236,7 @@ Automatic strategies only use nodes that pass health checks. The service rejects
 - HTTP, SOCKS5, and Mixed local port pools.
 - Health checks, failed-node skipping, and Mihomo hot reload.
 - Listener checks and multi-connection exit-distribution verification.
+- Browser-profile session rotation that pins one node for a run and switches on the next start, with web-managed Roxy discovery/launch and a command-line launcher for regular browsers. See [browser session rotation](docs/BROWSER_SESSIONS_EN.md).
 - Live node health, bounded batch latency tests, persistent port verification history, and 24-hour failure trends. Background probes are off by default; see the [observability guide](OBSERVABILITY_EN.md).
 - Persistent sessions, subscriptions, and port-pool state.
 - Passphrase-encrypted configuration backups with automatic rollback on restore failure.
@@ -304,11 +306,11 @@ This resets only administrator credentials and preserves the subscription encryp
 
 - `.env` contains machine-local secrets, is ignored by Git, and must not be shared.
 - Subscription URLs, raw YAML, and sensitive node fields are encrypted with AES-256-GCM before being stored in SQLite.
-- System Settings can download a passphrase-encrypted recovery package. Restore is a full replacement: resources missing from the package are deleted, so preview the plan first. The package excludes administrator credentials, sessions, API tokens, audit events, observation history and probe schedules, and does not change the target host's port mappings.
+- System Settings can download a passphrase-encrypted recovery package. Restore is a full replacement: resources missing from the package are deleted, so preview the plan first. The package excludes administrator credentials, login sessions, active proxy-use sessions, Roxy API keys/window bindings, API tokens, audit events, observation history and probe schedules, and does not change the target host's port mappings. End every proxy-use session before restore.
 - Recovery payloads are limited to 24 MiB and encrypted files to 33 MiB. Oversized payloads are rejected during export so backups remain importable.
 - Audit events are redacted before storage. Diagnostic exports exclude complete subscription URLs, node credentials, cookies, and controller secrets.
 - Compose binds to `127.0.0.1` by default. Do not change it to `0.0.0.0` without additional authentication and network isolation.
-- `proxy-session-data` stores subscriptions, sessions, API-token digests, audit events, observation history/settings, and pools; `proxy-mihomo-data` stores Mihomo runtime configuration.
+- `proxy-session-data` stores subscriptions, login sessions, proxy-use sessions, browser integration configuration, API-token digests, audit events, observation history/settings, and pools; `proxy-mihomo-data` stores Mihomo runtime configuration.
 - Management login does not authenticate proxy traffic. API secrets are shown only once; give each script the minimum scopes it needs and keep secrets out of command arguments, repositories, and logs.
 
 Report security issues privately according to the [security policy](SECURITY_EN.md).
@@ -378,6 +380,7 @@ Existing filenames are preserved, and each guide links to its translation. Engli
 | Docker deployment | [阅读](DOCKER_ZH.md) | [Read](DOCKER.md) |
 | Portable deployment | [阅读](PORTABLE_ZH.md) | [Read](PORTABLE.md) |
 | Observability | [阅读](OBSERVABILITY.md) | [Read](OBSERVABILITY_EN.md) |
+| Browser session rotation and Roxy | [阅读](docs/BROWSER_SESSIONS.md) | [Read](docs/BROWSER_SESSIONS_EN.md) |
 | Automation API and CLI | [阅读](AUTOMATION.md) | [Read](AUTOMATION_EN.md) |
 | Releases and verification | [阅读](RELEASING.md) | [Read](RELEASING_EN.md) |
 | Changelog | [阅读](CHANGELOG.md) | [Read](CHANGELOG_EN.md) |

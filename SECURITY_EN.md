@@ -26,6 +26,7 @@ Avoid publishing directly exploitable details before a fixed version is availabl
 - Give each script the minimum API scopes it needs and restrict credential-file access. Scopes apply to the entire instance. Changing administrator credentials or `AUTH_SESSION_VERSION` invalidates old tokens.
 - Active probes send proxy requests to test providers, which can see exit IPs. Local history stores exit IPs unencrypted; restrict database access.
 - Default proxy ports are for the local host only, not direct public exposure.
+- The supported Roxy path connects only to the same machine's local API. Its API key is encrypted in the browser-integration database; back up and protect that database together with its `.env`/`config.env` master key, and never place the key in command arguments, browser launch configuration, or logs. The advanced `ROXY_API_HOST` override sends the key over HTTP and must never target an untrusted network or public address.
 - `.env`, SQLite databases and generated Mihomo configuration may contain sensitive information. Restrict access and protect backups.
 - Encrypted recovery packages contain recoverable subscription/node credentials. Use strong passphrases stored separately. Review redacted diagnostics before publishing them.
 - If a reverse proxy uses a different browser origin, list it precisely in `APP_ALLOWED_ORIGINS`; do not use wildcards.

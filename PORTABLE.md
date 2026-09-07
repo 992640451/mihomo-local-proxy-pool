@@ -64,15 +64,16 @@ The Windows CLI has moved to `bin/ppm.cmd`; the root no longer contains the old 
 
 Portable data is stored in `data` at the extraction root, not inside `bin`. Stop the
 service before copying that directory to preserve a consistent set of subscriptions,
-encryption keys, login sessions, API tokens, audit events, observations and managed
-ports. Extract updates into a new directory, copy your backed-up `data` into it,
+encryption keys, login sessions, proxy-use sessions, browser integration configuration,
+API tokens, audit events, observations and managed ports. Extract updates into a new directory, copy your backed-up `data` into it,
 then start the new launcher; do not run both copies at once. Keep the old directory
 and backup until the new instance is verified. Do not point an older binary at a
 database already upgraded by a newer version. Updating must not replace `data`. For a portable
 configuration backup, use System Settings to download a passphrase-encrypted
 recovery package. It includes subscriptions and managed ports but deliberately
-excludes administrator credentials, login sessions, API tokens, audit history,
-observation history and probe schedules. Restore is a full replacement, requires
+excludes administrator credentials, login sessions, active proxy-use sessions,
+Roxy API keys/window bindings, API tokens, audit history, observation history and
+probe schedules. End every proxy-use session before restore. Restore is a full replacement, requires
 a preview and a valid signed plan, and does not change host port mappings.
 
 For headless workflows, create a scoped token in System Settings and use `ppm doctor`,
@@ -80,6 +81,12 @@ For headless workflows, create a scoped token in System Settings and use `ppm do
 `ppm restore backup.json --plan plan.json`. Restore only previews changes unless
 `--apply --plan plan.json` is provided. Token state persists in `data/api-tokens.sqlite`.
 See [Automation](AUTOMATION_EN.md) for secure credential-file configuration and the v1 API contract.
+
+Session rotation and the Roxy web integration are supported in portable deployments;
+the manager reaches Roxy's local API through `127.0.0.1`. For regular-browser or
+scripted use, run `bin/ppm.cmd launch` on Windows or `./ppm launch` on Linux/macOS.
+See [browser session rotation](docs/BROWSER_SESSIONS_EN.md) for configuration,
+credential files and recovery behavior.
 
 Node latency tests, port verification history and optional scheduled probes are
 available in version 1.2.0. Background probes default to off; settings and samples

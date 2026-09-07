@@ -64,6 +64,10 @@ node scripts/launcher.mjs ports end 17900 '实际返回的-sessionId'
 
 会话单独持久化在 `proxy-sessions.sqlite`，默认与内置核心状态文件同目录，也可通过 `PROXY_SESSION_DB` 指定。它不属于管理后台登录会话，也不包含节点密码。应用或核心重启后继续使用原节点；配置生成始终将此策略组限定为单个绑定节点。
 
+Roxy API Key 与窗口绑定保存在同目录的 `browser-integrations.sqlite`（可通过 `BROWSER_INTEGRATION_DB` 指定），API Key 使用持久主密钥加密。需要单独密钥时设置至少 16 个字符且保持不变的 `BROWSER_INTEGRATION_MASTER_KEY`；已有数据写入后更换密钥会导致原 API Key 无法解密。该数据库和密钥不包含在配置恢复包中。做完整部署备份时必须同时保存数据库和对应主密钥：Docker 需另存 `.env`，便携版需保留包含 `config.env` 的完整 `data` 目录。
+
+默认支持的 Roxy 路径仅限同一电脑：便携版访问回环地址，Docker 访问宿主机网关。`ROXY_API_HOST` 是高级网络覆盖，Roxy API Key 会随 HTTP 请求发送；不得将它指向不可信网络或公网地址，也不要通过端口转发暴露 Roxy API。
+
 中断的开始/结束操作显示“需要结束并重新开始”。确认浏览器关闭后点击“结束使用”，完成清理后才能开始下一会话。配置恢复期间不允许存在未结束的代理会话；恢复包只包含策略配置，不携带活动代理会话。
 
 固定节点并不保证公网 IP 恒定：上游节点可能自行更换出口，不同节点也可能共用出口。需要严格固定 IP 时，应使用满足要求的上游资源。

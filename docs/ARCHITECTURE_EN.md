@@ -13,13 +13,14 @@ This document records module boundaries and compatibility rules for feature deve
 - `server/database/` provides versioned migrations; individual stores declare their own ordered migrations.
 - `server/automation/` owns the explicit v1 allowlist, OpenAPI, request validation and token storage. New UI endpoints do not automatically become token-accessible.
 - `server/observability/` separates Controller access, storage and scheduling. Jobs hold recovery leases; background probes default to off.
+- `server/proxySessions.mjs` and `server/proxySessionStore.mjs` own the proxy-use state machine and persistent cursor. `server/browser/` owns browser adapters and encrypted bindings, not node-rotation decisions.
 - `server/recovery/` handles encrypted backups, diffs, signed plans, exclusion and rollback. `server/audit/` and `server/diagnostics/` handle redacted operational information.
 - `src/api.js` is the browser API boundary for requests and error-response compatibility.
 - `src/components/` holds shared UI, `src/pages/` page-level components, and `src/hooks/` reusable state logic.
 
 ## Database migrations
 
-Subscription, session, API-token, audit and observation databases use SQLite `PRAGMA user_version`:
+Subscription, login-session, proxy-use-session, browser-integration, API-token, audit and observation databases use SQLite `PRAGMA user_version`:
 
 1. Versions increase consecutively from 1. Never modify published migrations.
 2. Each migration runs inside one `BEGIN IMMEDIATE` transaction.
@@ -28,11 +29,17 @@ Subscription, session, API-token, audit and observation databases use SQLite `PR
 5. New migrations need tests for fresh databases, previous-version upgrades, rollback and data preservation.
 6. Refuse to open newer unsupported schemas so old binaries cannot damage new data.
 
-Migration backups are emergency upgrade rollback aids, not replacements for stopped-service data-directory backups or encrypted configuration exports. Configuration recovery packages exclude authentication, sessions, tokens, audit events and observation history/settings.
+Migration backups are emergency upgrade rollback aids, not replacements for stopped-service data-directory backups or encrypted configuration exports. Configuration recovery packages exclude authentication, login sessions, active proxy-use sessions, browser API keys/bindings, tokens, audit events and observation history/settings.
+
+## Proxy-use session boundaries
+
+`session-round-robin` renders a `REJECT`-only group while idle. Start blocks and drains old connections, then follows the persistent cursor to find a healthy node different from the previous run. It commits `active` only after the Controller confirms that the group contains exactly that node. End blocks again, drains connections and commits `ended`. Launch IDs make start retries idempotent, and an old session ID cannot end a newer session.
+
+Active bindings and cursors survive application/core restarts. Interrupted transitions become `recovery-required`; the service must not infer that a browser exited. Configuration recovery carries the port strategy but excludes active sessions and browser bindings, and refuses to run while a session remains open. A browser adapter ends the exact session only after confirming that its target window closed; uncertain status preserves the binding.
 
 ## Versioned API and recovery boundaries
 
-`server/automation/contract.mjs` defines the 21 `/api/v1` operations. Application versions and API v1 evolve independently. Additive response fields are compatible; breaking changes require a new API major version. Unversioned endpoints reject API tokens. See [Automation](../AUTOMATION_EN.md) for scopes and CLI conventions.
+`server/automation/contract.mjs` defines the 21 `/api/v1` operations. Application versions and API v1 evolve independently. Additive response fields are compatible; breaking changes require a new API major version. Unversioned endpoints reject API tokens. See [Automation](../AUTOMATION_EN.md) for scopes and CLI conventions, and [browser session rotation](BROWSER_SESSIONS_EN.md) for user-facing state-machine rules.
 
 Configuration apply requires a signed, unexpired plan tied to the same package and configuration digest. Conflicting operations are excluded during changes. Subscription activation waits for core reload confirmation and restores snapshots/core configuration on failure. The database and external core are not a distributed transaction: rollback failures must be explicit, not described as unconditional atomic commits.
 

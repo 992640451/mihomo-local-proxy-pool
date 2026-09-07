@@ -30,7 +30,7 @@ API 根据原生订阅数据库中选定的节点生成 `/mihomo/config.yaml`。
 
 「操作记录」读取 `/data/audit.sqlite` 中已持久化、脱敏的事件。`AUDIT_RETENTION_DAYS` 默认 30 天，`AUDIT_MAX_EVENTS` 默认 10000 条。审计属于运行历史，不包含在配置恢复包中。
 
-「系统设置」可以生成口令加密的 JSON 恢复包，包含订阅、重新加密为可迁移形式的源数据、稳定节点 ID 和端口池。不包含登录会话、审计、管理凭据、API 令牌、检测历史和检测调度设置。恢复必须先审阅差异，再于 10 分钟内显式应用签名计划；配置发生变化后计划失效。恢复是整体替换，包中缺少的资源会被删除，但不会修改容器端口映射。应用或核心重载失败时尝试回滚；如回滚也失败，应检查错误及实际状态，不要盲目重试。
+「系统设置」可以生成口令加密的 JSON 恢复包，包含订阅、重新加密为可迁移形式的源数据、稳定节点 ID 和端口池。不包含登录会话、活动代理会话、Roxy API Key/窗口绑定、审计、管理凭据、API 令牌、检测历史和检测调度设置。恢复前必须结束所有代理使用会话，再审阅差异并于 10 分钟内显式应用签名计划；配置发生变化后计划失效。恢复是整体替换，包中缺少的资源会被删除，但不会修改容器端口映射。应用或核心重载失败时尝试回滚；如回滚也失败，应检查错误及实际状态，不要盲目重试。
 
 同一页面检查订阅、会话、API 令牌、审计和检测数据库、两类调度器、Mihomo Controller、目录一致性及可写存储。可下载的诊断文件会脱敏，但公开到 Issue 前仍应自行复核。
 
@@ -54,6 +54,14 @@ API 根据原生订阅数据库中选定的节点生成 `/mihomo/config.yaml`。
 
 在「系统设置 → API 令牌」创建令牌，其摘要保存在 `/data/api-tokens.sqlite`。使用 `/api/v1`，或从源码目录/便携包运行 CLI，并在主机上将 `PPM_API_URL` 指向 `http://127.0.0.1:4173`。容器镜像不包含启动器。权限、凭据文件、备份与恢复预检见 [自动化指南](AUTOMATION.md)。
 
+## 浏览器会话与 Roxy
+
+“会话轮换”端口把一次浏览器配置文件使用固定到一个节点，结束后下次开始才轮换。未开始时端口保持阻断，活动会话中节点故障不会自动切换或回退直连。代理使用状态保存在 `/data/proxy-sessions.sqlite`，应用或核心重启后仍保留；配置恢复前必须结束活动或待恢复的会话。
+
+Roxy 与 Docker 必须运行在同一台电脑。Compose 通过 `extra_hosts` 让管理容器使用 `host.docker.internal` 访问宿主机 Roxy 本地 API；这条映射只用于 Roxy 控制 API，不会把本机代理监听变成通用的跨容器入口。页面仍填写 Roxy 显示的 API 端口（默认 `50000`）。API Key 和窗口绑定加密保存在 `/data/browser-integrations.sqlite`；默认复用现有持久化主密钥，也可通过 `BROWSER_INTEGRATION_MASTER_KEY` 单独指定至少 16 个字符的稳定密钥。不要在已有数据后更换该密钥。
+
+命令行启动器必须在宿主机运行，不能从管理容器内启动桌面浏览器。完整设置、普通浏览器适配与异常恢复见 [会话轮换使用指南](docs/BROWSER_SESSIONS.md)。
+
 ## 更新与停止
 
 升级前备份数据。完整数据目录备份应先停止服务以保持一致；加密配置导出不包含所有数据库。保留 `.env` 及两个命名卷。
@@ -72,7 +80,7 @@ docker compose down
 
 会话存储在 `/data/sessions.sqlite`。Compose 将命名卷 `proxy-session-data` 挂载到 `/data`，有效登录可跨应用、容器和主机重启保留。普通 `docker compose down` 和重建保留该卷；删除该卷会使所有会话失效。
 
-端口配置保存在 `/data/embedded-core.json`，生成的 Mihomo 配置和核心运行数据保存在独立 `proxy-mihomo-data` 卷。普通 `docker compose down` 保留两个卷。
+端口配置保存在 `/data/embedded-core.json`，代理使用会话保存在 `/data/proxy-sessions.sqlite`，Roxy 接入配置保存在 `/data/browser-integrations.sqlite`；它们均位于 `proxy-session-data` 卷。生成的 Mihomo 配置和核心运行数据保存在独立 `proxy-mihomo-data` 卷。普通 `docker compose down` 保留两个卷。
 
 ## 端口池策略
 
@@ -83,8 +91,9 @@ docker compose down
 - `url-test`：周期性选择较低延迟节点。
 - `consistent-hashing`：尽量让相同目标使用相同健康节点。
 - `round-robin`：将新连接轮换到健康节点。
+- `session-round-robin`：开始使用时选择健康节点并固定到结束，下次开始再轮换。
 
-自动策略至少需要两个节点。健康检查 URL、间隔、超时、最大失败次数和延迟优选容差在写配置前由 API 校验。策略变更以原子文件写入并通过私有 Controller 热重载。活动节点切换不会迁移已有 TCP 连接，新连接使用新选择。
+自动策略至少需要两个节点。健康检查 URL、间隔、超时、最大失败次数和延迟优选容差在写配置前由 API 校验。策略变更以原子文件写入并通过私有 Controller 热重载。活动节点切换不会迁移已有 TCP 连接，新连接使用新选择。`session-round-robin` 只在开始时检查候选节点，未开始或结束后将策略组限制为 `REJECT`；详情见浏览器会话章节。
 
 端口状态使用结构版本 2，保存有序 `nodeIds`、策略和健康检查选项。旧 `nodeId` 字段保留为主节点别名，便于回退兼容。首次从版本 1 升级时保留 `/data/embedded-core.json.v1.bak`，并把旧端口转换为单节点 `select` 组。
 

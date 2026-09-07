@@ -69,9 +69,10 @@ not part of a configuration recovery package.
 
 System Settings can create a passphrase-encrypted JSON recovery package that
 contains subscriptions, their encrypted-at-rest source material in re-encrypted
-portable form, stable node IDs, and managed port pools. Login sessions and audit
-events, administrator credentials, API tokens, observation history and probe
-schedules are deliberately excluded. Restore requires reviewing a diff first,
+portable form, stable node IDs, and managed port pools. Login sessions, active
+proxy-use sessions, Roxy API keys/window bindings, audit events, administrator
+credentials, API tokens, observation history and probe schedules are deliberately
+excluded. End every proxy-use session before restore. Restore requires reviewing a diff first,
 then explicitly applying a signed plan within 10 minutes. A configuration change
 invalidates the plan. Restore replaces the entire configuration, deleting resources
 absent from the package; it does not change container port mappings. On apply or
@@ -117,6 +118,27 @@ portable bundle, pointing `PPM_API_URL` at `http://127.0.0.1:4173` on the host.
 The container image does not include the launcher. See [Automation](AUTOMATION_EN.md)
 for scopes, credential files, backup and restore planning.
 
+## Browser sessions and Roxy
+
+A session-rotation port pins one browser-profile run to a node and rotates only
+after the run ends. The port remains blocked until a session starts; a mid-session
+node failure does not switch nodes or fall back to a direct connection. Proxy-use
+state persists in `/data/proxy-sessions.sqlite` across application/core restarts.
+End active or recovery-required sessions before configuration restore.
+
+Roxy and Docker must run on the same computer. Compose uses `extra_hosts` so the
+management container can reach Roxy's host-local API at `host.docker.internal`.
+This mapping is only for the Roxy control API; it does not turn host-loopback proxy
+listeners into a general cross-container endpoint. Enter Roxy's displayed API port
+(default `50000`) in the UI. Its API key and window bindings are encrypted in
+`/data/browser-integrations.sqlite`. The existing persistent master key is used by
+default; set a stable `BROWSER_INTEGRATION_MASTER_KEY` of at least 16 characters
+to separate it, and do not change that key after data has been written.
+
+Run the command-line launcher on the host, not inside the management container.
+See [browser session rotation](docs/BROWSER_SESSIONS_EN.md) for setup, regular-browser
+adapters and recovery behavior.
+
 ## Update and stop
 
 Back up your data before upgrading. For a consistent full data-directory backup,
@@ -145,7 +167,9 @@ application, container, and host restarts. Normal `docker compose down` and
 recreation keep this volume. Deleting the volume intentionally revokes every
 session.
 
-Managed port assignments are stored in `/data/embedded-core.json`. The generated
+Managed port assignments are stored in `/data/embedded-core.json`, proxy-use
+sessions in `/data/proxy-sessions.sqlite`, and Roxy integration configuration in
+`/data/browser-integrations.sqlite`; all three are in `proxy-session-data`. The generated
 Mihomo configuration and core runtime data are stored in the separate
 `proxy-mihomo-data` volume. Normal `docker compose down` preserves both volumes.
 
@@ -159,12 +183,15 @@ and API support these strategies:
 - `url-test`: periodically select the lowest-latency node.
 - `consistent-hashing`: keep the same target on the same healthy node when possible.
 - `round-robin`: distribute new connections across healthy nodes.
+- `session-round-robin`: choose a healthy node at start, pin it until end, and rotate on the next start.
 
 Automatic strategies require at least two nodes. Health-check URL, interval,
 timeout, maximum failed checks, and URL-test tolerance are validated by the API
 before the configuration is written. Strategy changes are written atomically and
 hot-reloaded through the private Mihomo controller. Existing TCP connections are
 not migrated when the active node changes; new connections use the new selection.
+`session-round-robin` checks candidates only when starting and restricts its group
+to `REJECT` before start and after end; see the browser-session section above.
 
 Port state uses schema version 2 and stores the ordered `nodeIds`, strategy, and
 health-check options. The legacy `nodeId` field remains as the primary-node alias
