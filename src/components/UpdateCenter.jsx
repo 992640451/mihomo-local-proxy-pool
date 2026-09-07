@@ -99,6 +99,7 @@ export function UpdateCenter({ version }) {
   const seconds = Math.max(0, Math.ceil(((job?.restartAt || 0) - now) / 1000));
   const currentVersion = info?.currentVersion || version;
   const versionLabel = currentVersion ? `v${currentVersion}` : '版本加载中';
+  const upToDate = Boolean(info?.latestVersion && currentVersion === info.latestVersion && !info.hasUpdate && !info.warning);
   return <div className="update-center">
     <button ref={trigger} className={`update-version-button${info?.hasUpdate ? ' has-update' : ''}`} onClick={() => { setOpen(true); setTip(false); refresh().catch(reason => setError(reason.message)); }} aria-label={`版本更新，当前${versionLabel}`} aria-haspopup="dialog" aria-expanded={open} title={`${versionLabel} · ${working ? '正在更新' : info?.hasUpdate ? '发现新版本，点击查看' : '点击检查更新'}`}>
       <span className="update-version-copy"><span className="update-version-label"><strong>{versionLabel}</strong>{info?.hasUpdate && <i aria-label="发现新版本" />}</span><small>Proxy Port Manager</small></span>
@@ -118,9 +119,16 @@ export function UpdateCenter({ version }) {
       }}>
         <header><div><span className="update-eyebrow">APPLICATION UPDATE</span><h2 id="update-title">版本更新</h2></div><button ref={closeButton} className="icon-button" aria-label="关闭更新窗口" onClick={() => { setOpen(false); trigger.current?.focus(); }}>×</button></header>
         <div className="update-dialog-body">
-          <div className="update-version-row"><div><small>当前版本</small><strong>{versionLabel}</strong></div><span aria-hidden="true">→</span><div><small>{info?.hasUpdate ? '可用新版本' : '最新正式版本'}</small><strong>{info?.latestVersion ? `v${info.latestVersion}` : '暂未获取'}</strong></div></div>
-          {info?.publishedAt && <p className="update-muted">发布于 {new Date(info.publishedAt).toLocaleDateString()}</p>}
-          {!working && info?.notes && <details className="update-notes" open><summary>更新内容</summary><pre>{info.notes}</pre></details>}
+          {info?.hasUpdate ? <>
+            <div className="update-version-row"><div><small>当前版本</small><strong>{versionLabel}</strong></div><span aria-hidden="true">→</span><div><small>可用新版本</small><strong>v{info.latestVersion}</strong></div></div>
+            {info.publishedAt && <p className="update-muted">发布于 {new Date(info.publishedAt).toLocaleDateString()}</p>}
+          </> : upToDate ? <div className="update-current-state" role="status">
+            <span className="update-current-mark" aria-hidden="true">✓</span>
+            <div><strong>已是最新版本</strong><p>当前使用 {versionLabel}{info.publishedAt ? ` · 发布于 ${new Date(info.publishedAt).toLocaleDateString()}` : ''}</p></div>
+          </div> : <div className="update-current-version">
+            <small>当前版本</small><strong>{versionLabel}</strong><p>尚未确认最新正式版本</p>
+          </div>}
+          {!working && info?.hasUpdate && info.notes && <details className="update-notes" open><summary>更新内容</summary><pre>{info.notes}</pre></details>}
           {info?.warning && <p className="update-warning" role="status">暂时无法检查更新：{info.warning}</p>}
           {!working && info?.unsupportedReason && info.hasUpdate && <p className="update-warning">{info.unsupportedReason}</p>}
           {!working && info?.hasUpdate && info.canUpdate && <p className="update-impact">更新前自动备份订阅、端口池、账号密钥和设置。安装时服务会短暂停止，代理连接可能中断；完成后自动重启并重新连接此页面。</p>}
@@ -139,7 +147,7 @@ export function UpdateCenter({ version }) {
         </div>
         <footer>
           <button className="button ghost" disabled={busy || working} onClick={async () => { setBusy(true); try { await refresh(true); } catch (reason) { setError(reason.message); } finally { setBusy(false); } }}>检查更新</button>
-          {info?.releaseUrl && <a className="text-button" href={info.releaseUrl} target="_blank" rel="noreferrer">发布说明 ↗</a>}
+          {info?.releaseUrl && <a className="button ghost update-release-link" href={info.releaseUrl} target="_blank" rel="noreferrer">发布说明 <span aria-hidden="true">↗</span></a>}
           {info?.hasUpdate && !working && <button className="text-button" onClick={() => { remember(`ppm:update:ignored:${info.installationId}`, info.latestVersion); setTip(false); setOpen(false); }}>忽略此版本</button>}
           {working ? job.canCancel && <button className="button ghost" disabled={offline || (job.state === 'countdown' && seconds === 0)} onClick={() => request(`/jobs/${job.id}/cancel`, { method: 'POST' }).catch(reason => setError(reason.message))}>取消更新</button> : info?.canUpdate && <button className="button primary" disabled={busy || job?.state === 'recovery_required'} onClick={begin}>{busy ? '正在提交…' : '更新并自动重启'}</button>}
         </footer>

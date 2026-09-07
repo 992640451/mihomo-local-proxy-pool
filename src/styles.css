@@ -295,6 +295,13 @@ small.observation-note { display: block; }
 .update-version-row>div { display:flex; flex-direction:column; gap:8px; }
 .update-version-row small,.update-muted { color:#8799ac; font-size:12px; line-height:1.8; }
 .update-version-row strong { font:600 25px 'IBM Plex Mono',monospace; }
+.update-current-state { display:flex; align-items:center; gap:15px; padding:17px 18px; border:1px solid rgba(52,211,153,.32); border-radius:5px; background:rgba(52,211,153,.06); }
+.update-current-mark { width:36px; height:36px; display:grid; place-items:center; flex:none; color:#07140f; border-radius:50%; background:var(--green); font-size:20px; font-weight:700; }
+.update-current-state strong { color:#dff9ef; font-size:15px; }
+.update-current-state p,.update-current-version p { margin:5px 0 0; color:#8799ac; font-size:12px; line-height:1.7; }
+.update-current-version { display:flex; flex-direction:column; align-items:flex-start; gap:7px; }
+.update-current-version small { color:#8799ac; font-size:12px; }
+.update-current-version strong { font:600 25px 'IBM Plex Mono',monospace; }
 .update-notes { padding:14px; margin:18px 0; background:#0b1118; border:1px solid #283543; border-radius:5px; }
 .update-notes summary { cursor:pointer; font-size:13px; }
 .update-notes pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.9 inherit; color:#a5b4c4; max-height:220px; overflow:auto; }
@@ -306,6 +313,8 @@ small.observation-note { display: block; }
 .update-preference { display:flex; gap:9px; align-items:center; font-size:12px; color:#96a7b8; margin-top:18px; }
 .update-dialog footer { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:16px 24px; border-top:1px solid var(--line); }
 .update-dialog footer .primary { margin-left:auto; }
+.update-release-link { color:#aebac5; text-decoration:none; font-size:12px; }
+.update-release-link span { color:#7f91a2; font:12px 'IBM Plex Mono',monospace; }
 .update-settings-entry { display:flex; flex-wrap:wrap; gap:18px; justify-content:space-between; align-items:center; padding:20px 24px; margin-bottom:20px; }
 .update-settings-entry p { color:#8b9daf; font-size:12px; line-height:1.8; margin:6px 0 0; }
 @media (max-width:1180px) {
