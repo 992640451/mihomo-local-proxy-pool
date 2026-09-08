@@ -3,22 +3,29 @@ name: 合并发布 PR 后发布
 on:
   pull_request:
     types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 已合并的发布 PR 编号（例如 7），继续发布原合并提交
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-release-pr-${{ github.event.pull_request.number }}
+  group: publish-release-pr-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: false
 
 jobs:
   publish:
     if: >-
-      github.event.pull_request.merged == true &&
+      (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch) ||
+      (github.event.pull_request.merged == true &&
       github.event.pull_request.base.ref == github.event.repository.default_branch &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login == 'github-actions[bot]' &&
-      startsWith(github.event.pull_request.head.ref, 'codex/release-v')
+      startsWith(github.event.pull_request.head.ref, 'codex/release-v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -27,11 +34,28 @@ jobs:
       actions: write
     env:
       RELEASE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      RELEASE_PR_NUMBER: ${{ github.event.pull_request.number }}
+      RELEASE_PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
+      - name: 解析并核对已合并发布 PR
+        id: merged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          [[ "$RELEASE_PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'PR 编号无效'; exit 1; }
+          revision=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$RELEASE_PR_NUMBER" | jq -r '
+            select(.merged == true and
+              .base.ref == env.RELEASE_DEFAULT_BRANCH and
+              .base.repo.full_name == env.GITHUB_REPOSITORY and
+              .head.repo.full_name == env.GITHUB_REPOSITORY and
+              .user.login == "github-actions[bot]" and
+              (.head.ref | test("^codex/release-v[0-9]+\\.[0-9]+\\.[0-9]+$"))) |
+            .merge_commit_sha')
+          [[ "$revision" =~ ^[a-f0-9]{40}$ ]] || { echo '仅接受本仓库发布机器人创建并已合并到默认分支的发布 PR'; exit 1; }
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ steps.merged.outputs.revision }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -48,6 +72,7 @@ jobs:
           npm test
           npm run build
           npm run release:validate -- --tag "v$(node -p 'require("./package.json").version')"
+          cp .env.example .env
           docker compose --env-file .env.example config --quiet
       - name: 检查签名配置
         env:

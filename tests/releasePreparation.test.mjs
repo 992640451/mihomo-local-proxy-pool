@@ -199,6 +199,11 @@ test('web workflows restrict mutations, explicitly dispatch CI and preserve the 
   assert.deepEqual(publish.on.pull_request.types, ['closed'])
   assert.match(publish.jobs.publish.if, /merged == true/)
   assert.match(publish.jobs.publish.if, /github-actions\[bot\]/)
-  assert.equal(publish.jobs.publish.steps[0].with.ref, '${{ github.event.pull_request.merge_commit_sha }}')
+  assert.equal(publish.on.workflow_dispatch.inputs.pr_number.required, true)
+  assert.match(publish.jobs.publish.if, /github.ref_name == github.event.repository.default_branch/)
+  assert.equal(publish.jobs.publish.steps.find(step => step.uses?.startsWith('actions/checkout@')).with.ref, '${{ steps.merged.outputs.revision }}')
+  const validation = publish.jobs.publish.steps.find(step => step.name === '验证实际合并后的源码').run
+  assert.ok(validation.indexOf('cp .env.example .env') >= 0)
+  assert.ok(validation.indexOf('cp .env.example .env') < validation.indexOf('docker compose'))
   assert.deepEqual(release.jobs.release.needs, ['validate', 'build-portable', 'container'])
 })
