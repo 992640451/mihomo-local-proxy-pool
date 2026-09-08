@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "previousVersion": "1.3.0",
+  "version": "1.3.1",
+  "tag": "v1.3.1",
+  "baseSha": "e5e9133447a60aa7958f3e4d846545cb2142961c",
+  "bump": "patch",
+  "upgrade": "current-tested",
+  "policy": {
+    "minVersion": "1.3.0",
+    "maxVersion": "1.3.0"
+  }
+}

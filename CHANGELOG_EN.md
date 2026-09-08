@@ -6,6 +6,8 @@ Public versions follow semantic versioning. This file records user-facing behavi
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-08
+
 ### Added
 
 - Added a GitHub web release-preparation workflow: select a version increment to synchronize version files and bilingual notes, open a release PR and dispatch CI. After human review and merge, it tags the exact merged revision and starts the existing signed multi-platform release pipeline, with an explicit upgrade-source selection.
