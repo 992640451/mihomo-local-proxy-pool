@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { randomBytes, scryptSync } from 'node:crypto'
 import { capture } from './build-metadata.mjs'
 import { argument } from './release-utils.mjs'
@@ -12,6 +13,7 @@ const password = randomBytes(24).toString('hex'), salt = randomBytes(16).toStrin
 const configuration = {
   APP_HOST: '0.0.0.0', PORT: '4180', SUBSCRIPTION_MODE: 'native', SUBSCRIPTION_DB: ':memory:',
   SUBSCRIPTION_MASTER_KEY: randomBytes(32).toString('hex'), AUTH_SESSION_DB: ':memory:', AUDIT_DB: ':memory:',
+  BROWSER_INTEGRATION_DB: ':memory:',
   AUTH_USERNAME: 'smoke-test', AUTH_PASSWORD_SALT: salt, AUTH_PASSWORD_SCRYPT: scryptSync(password, salt, 64).toString('hex'),
   EMBEDDED_CORE_ENABLED: 'false',
 }
@@ -27,6 +29,7 @@ try {
     const base = `http://${address}`
     let healthy = false
     for (let attempt = 0; attempt < 60; attempt += 1) {
+      assert.equal(capture('docker', ['inspect', '--format', '{{.State.Running}}', container]), 'true', '容器在就绪前已退出')
       try { healthy = (await fetch(`${base}/healthz`, { signal: AbortSignal.timeout(1000) })).ok } catch {}
       if (healthy) break
       await new Promise(resolve => setTimeout(resolve, 500))
@@ -44,6 +47,16 @@ try {
     assert.equal(capture('docker', ['inspect', '--format', '{{.State.ExitCode}}', container]), '0')
   }
   console.log('容器页面、登录、版本信息、停止和重启测试通过')
+} catch (error) {
+  if (container && /^[a-f0-9]{64}$/.test(container)) {
+    for (const args of [['inspect', '--format', '{{json .State}}', container], ['logs', '--tail', '100', container]]) {
+      const result = spawnSync('docker', args, { encoding: 'utf8', windowsHide: true, timeout: 10000 })
+      console.error(result.stdout || '')
+      console.error(result.stderr || '')
+      if (result.error) console.error(result.error.message)
+    }
+  }
+  throw error
 } finally {
   if (container && /^[a-f0-9]{64}$/.test(container)) capture('docker', ['rm', '-f', container])
 }
