@@ -8,6 +8,8 @@ Public versions follow semantic versioning. This file records user-facing behavi
 
 ### Added
 
+- Added a GitHub web release-preparation workflow: select a version increment to synchronize version files and bilingual notes, open a release PR and dispatch CI. After human review and merge, it tags the exact merged revision and starts the existing signed multi-platform release pipeline, with an explicit upgrade-source selection.
+
 - A managed-embedded-Mihomo session-rotation strategy. Starting selects a healthy node different from the previous run, pins it for the session, and ending blocks the port and drains existing connections. State survives application/core restarts, while interrupted transitions require explicit recovery.
 - Roxy local-API integration in System Settings, including team/project/window discovery, encrypted API-key storage, proxy synchronization, and one-click launch, close monitoring, and session completion from a port card.
 - Proxy-session query/start/end operations in the automation API, `ports session/start/end` and browser-launch configuration in the CLI, plus regular-browser integration through an independent process lifecycle.

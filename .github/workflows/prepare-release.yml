@@ -1,0 +1,66 @@
+name: 准备新版本
+run-name: 准备新版本 · ${{ inputs.bump }} · ${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 版本类型（patch 修复 / minor 新功能 / major 不兼容变更）
+        type: choice
+        required: true
+        default: minor
+        options: [patch, minor, major]
+      upgrade:
+        description: 升级范围（preserve 保留原范围 / current-tested 已验证当前版本直升）
+        type: choice
+        required: true
+        default: preserve
+        options: [preserve, current-tested]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.8.1
+          cache: npm
+      - run: npm ci
+      - name: 同步版本与双语发行说明
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+          RELEASE_UPGRADE: ${{ inputs.upgrade }}
+        run: node scripts/prepare-release.mjs
+      - name: 检查元数据、测试与构建
+        run: |
+          npm run release:validate -- --tag "v$(node -p 'require("./package.json").version')"
+          npm test
+          npm run build
+          git diff --check
+      - name: 在创建发布 PR 前检查签名配置
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+        run: node scripts/validate-update-signing.mjs --root .
+      - name: 创建发布 PR 并触发 CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: node scripts/release-github.mjs pr

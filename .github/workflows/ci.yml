@@ -4,11 +4,34 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  release-pr-check:
+    if: startsWith(github.head_ref || github.ref_name, 'codex/release-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.8.1
+          cache: npm
+      - run: npm ci
+      - name: 检查发布计划与默认分支基线
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_PR_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: node scripts/release-github.mjs verify-pr
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -1,0 +1,59 @@
+name: 合并发布 PR 后发布
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'github-actions[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'codex/release-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: write
+    env:
+      RELEASE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      RELEASE_PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26.8.1
+          cache: npm
+      - run: npm ci
+      - name: 核对发布 PR、合并提交和版本范围
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-github.mjs verify-merged
+      - name: 验证实际合并后的源码
+        run: |
+          npm test
+          npm run build
+          npm run release:validate -- --tag "v$(node -p 'require("./package.json").version')"
+          docker compose --env-file .env.example config --quiet
+      - name: 检查签名配置
+        env:
+          UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATE_SIGNING_PRIVATE_KEY }}
+        run: node scripts/validate-update-signing.mjs --root .
+      - name: 创建标签并显式启动现有 Release 工作流
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-github.mjs publish

@@ -4,7 +4,25 @@
 
 Examples use **1.3.0**. M2 is a release-engineering roadmap milestone, not an application version. Version preparation, a local commit, pushing a tag and publishing a Release are separate steps. Changing the version does not mean it is published. Use a new semantic version for subsequent releases; never overwrite a public version.
 
-The version currently being prepared is **1.3.0**, which introduces web updates. Existing installations need one manual upgrade first; see the [English upgrade guide](docs/UPDATING_EN.md) / [简体中文](docs/UPDATING.md). For subsequent releases, update the version numbers in the examples below.
+The current source version is defined by `package.json`. **1.3.0** in the commands below is a historical example; replace it when running commands manually. The web workflow calculates versions without editing this guide. See the [English upgrade guide](docs/UPDATING_EN.md) / [简体中文](docs/UPDATING.md).
+
+## Prepare and publish from the website (recommended)
+
+One-time setup: merge these workflows into the default branch. In Settings → Actions → General → Workflow permissions, enable **Allow GitHub Actions to create and approve pull requests**. This workflow only creates PRs; it never approves or merges them. Organization policy must allow this as well. Keep the existing `UPDATE_SIGNING_PRIVATE_KEY`; no additional personal token is required. Repository rules must allow the bot to create `codex/release-v*` branches and `v*` tags.
+
+1. Merge the intended features into the default branch. Open Actions → **准备新版本** → Run workflow and select the default branch.
+2. Choose `patch` (fixes), `minor` (features), or `major` (breaking changes). Starting at 1.3.0 these produce 1.3.1, 1.4.0, or 2.0.0.
+3. Upgrade scope defaults to `preserve`, retaining the existing declaration. Choose `current-tested` only after testing an actual upgrade from the current source version to the target; this limits the range to that source version. Preserving an older range may exclude current installations from web updates. Version arithmetic does not establish compatibility.
+4. The workflow synchronizes package/lock versions, the Compose application image, both changelogs and `release/plan.json`. It tests, builds and checks signing before opening a release PR. Existing Unreleased notes are promoted unchanged; empty sections use commit titles since the previous tag as a draft. Review and translate the English draft as needed.
+5. Follow the PR link in the run Summary. Review Files changed, upgrade scope and CI; release notes can be edited on GitHub. Pause other merges while preparing the release. If the default branch changes, close the PR, delete its branch and prepare again.
+6. Once CI passes, use **Squash and merge** (recommended) or **Create a merge commit**. Rebase and merge is not supported. Merging authorizes public publication; do not auto-merge using another workflow's built-in token.
+7. **合并发布 PR 后发布** verifies the exact merged commit, retests it, creates the tag and explicitly dispatches the existing **Release** workflow. Publication still requires all six portable targets, both container architectures and signing/verification to pass. Starting preparation or opening a PR does not publish a release.
+
+The built-in token may suppress ordinary event-triggered CI or require approval. Preparation explicitly dispatches CI; if GitHub still displays Approve workflows to run on the PR, approve it in the browser. Release dispatch is explicit too, so it does not depend on a bot-created tag triggering a push workflow.
+
+Repeating preparation with identical baseline/options reuses the existing PR without overwriting manual branch edits. Complete or close another pending release PR first. For signing, permission or test failures, fix the cause and select Re-run failed jobs. Retries reuse a PR if CI dispatch failed after creation. Existing version tags are never moved. Retry the handoff if tag creation succeeded but dispatch failed; failures inside Release follow the existing retry guidance below, especially after an image has been pushed.
+
+Application, API and Mihomo versions remain independent. Web preparation does not upgrade Mihomo or replace historical version references in documentation. Manual engineering commands remain below.
 
 ## Preparation
 

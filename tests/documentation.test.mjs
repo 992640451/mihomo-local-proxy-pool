@@ -71,7 +71,7 @@ test('应用、锁文件、Compose 和双语变更记录版本一致', async () 
   assert.deepEqual(versions(chinese.replaceAll('\r', '')), versions(english.replaceAll('\r', '')))
   // README describes capabilities and links to releases without embedding the current version.
   for (const file of ['RELEASING.md', 'RELEASING_EN.md']) {
-    assert.ok((await read(file)).includes(version), `${file} missing current version`)
+    assert.ok((await read(file)).includes('package.json'), `${file} missing version source`)
   }
 })
 
