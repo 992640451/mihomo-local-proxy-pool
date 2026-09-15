@@ -1,4 +1,4 @@
-FROM node:26.8.1-bookworm-slim AS builder
+FROM node:26.8.2-bookworm-slim AS builder
 
 ARG VITE_BASE_PATH=/
 ENV VITE_BASE_PATH=${VITE_BASE_PATH}
@@ -18,7 +18,7 @@ ARG PPM_BUILD_TIME
 ARG TARGETPLATFORM
 RUN PPM_BUILD_REVISION="$PPM_BUILD_REVISION" PPM_BUILD_TIME="$PPM_BUILD_TIME" node scripts/write-build-info.mjs --target "${TARGETPLATFORM:-linux}"
 
-FROM node:26.8.1-bookworm-slim AS runtime
+FROM node:26.8.2-bookworm-slim AS runtime
 
 ARG PPM_BUILD_REVISION
 ARG PPM_BUILD_TIME
